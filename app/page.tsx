@@ -63,6 +63,14 @@ type QualityDashboardStats = {
   withDoi: number;
   scimagoIndexed: number;
 };
+type SavedSearch = {
+  id: string;
+  query: string;
+  fromYear: string;
+  toYear: string;
+  createdAt: string;
+};
+const SAVED_SEARCHES_STORAGE_KEY = "researchranker_saved_searches";
 const citationStyles: CitationStyle[] = ["IEEE", "Vancouver", "APA"];
 const quartileFilters: QuartileFilter[] = [
   "All",
@@ -323,10 +331,11 @@ export default function Home() {
   const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(true);
 
-  const [query, setQuery] = useState("");
-  const [fromYear, setFromYear] = useState("2023");
-  const [toYear, setToYear] = useState("2026");
-  const [articles, setArticles] = useState<Article[]>([]);
+const [query, setQuery] = useState("");
+const [fromYear, setFromYear] = useState("1990");
+const [toYear, setToYear] = useState("2026");
+const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
+const [articles, setArticles] = useState<Article[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchMessage, setSearchMessage] = useState("");
 
@@ -473,6 +482,24 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
 
   return Array.from(journals.values()).slice(0, 30);
 }, [articles]);
+useEffect(() => {
+  try {
+    const saved = window.localStorage.getItem(SAVED_SEARCHES_STORAGE_KEY);
+
+    if (!saved) {
+      return;
+    }
+
+    const parsed = JSON.parse(saved);
+
+    if (Array.isArray(parsed)) {
+      setSavedSearches(parsed);
+    }
+  } catch (error) {
+    console.error("Could not load saved searches:", error);
+    setSavedSearches([]);
+  }
+}, []);
   useEffect(() => {
     async function loadNews() {
       try {
@@ -512,6 +539,61 @@ function resetFilters() {
   setMatchConfidenceFilter("All");
   setSortOption("Newest first");
   showToast(isArabic ? "تمت إعادة ضبط الفلاتر" : "Filters reset");
+}
+function saveCurrentSearch() {
+  const cleanQuery = query.trim();
+
+  if (!cleanQuery) {
+    showToast(isArabic ? "اكتب بحثاً أولاً" : "Enter a search first");
+    return;
+  }
+
+  const newSavedSearch: SavedSearch = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    query: cleanQuery,
+    fromYear,
+    toYear,
+    createdAt: new Date().toISOString(),
+  };
+
+  const updatedSavedSearches = [
+    newSavedSearch,
+    ...savedSearches.filter(
+      (item) =>
+        !(
+          item.query.toLowerCase() === cleanQuery.toLowerCase() &&
+          item.fromYear === fromYear &&
+          item.toYear === toYear
+        )
+    ),
+  ].slice(0, 10);
+
+  setSavedSearches(updatedSavedSearches);
+  window.localStorage.setItem(
+    SAVED_SEARCHES_STORAGE_KEY,
+    JSON.stringify(updatedSavedSearches)
+  );
+
+  showToast(isArabic ? "تم حفظ البحث" : "Search saved");
+}
+
+function loadSavedSearch(savedSearch: SavedSearch) {
+  setQuery(savedSearch.query);
+  setFromYear(savedSearch.fromYear);
+  setToYear(savedSearch.toYear);
+  showToast(isArabic ? "تم تحميل البحث المحفوظ" : "Saved search loaded");
+}
+
+function deleteSavedSearch(id: string) {
+  const updatedSavedSearches = savedSearches.filter((item) => item.id !== id);
+
+  setSavedSearches(updatedSavedSearches);
+  window.localStorage.setItem(
+    SAVED_SEARCHES_STORAGE_KEY,
+    JSON.stringify(updatedSavedSearches)
+  );
+
+  showToast(isArabic ? "تم حذف البحث المحفوظ" : "Saved search deleted");
 }
   async function handleSearch() {
     const cleanQuery = query.trim();
@@ -846,7 +928,65 @@ function resetFilters() {
               {searchLoading ? t.searching : t.search}
             </button>
           </div>
+<div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div>
+      <h3 className="text-lg font-bold text-gray-900">
+        {isArabic ? "البحوث المحفوظة" : "Saved Searches"}
+      </h3>
 
+      <p className="mt-1 text-sm text-gray-600">
+        {isArabic
+          ? "احفظ كلمات البحث والسنوات للرجوع إليها بسرعة."
+          : "Save search terms and year ranges for quick reuse."}
+      </p>
+    </div>
+
+    <button
+      type="button"
+      onClick={saveCurrentSearch}
+      className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-bold text-white transition active:scale-95 hover:bg-black"
+    >
+      {isArabic ? "حفظ البحث الحالي" : "Save current search"}
+    </button>
+  </div>
+
+  {savedSearches.length > 0 && (
+    <div className="mt-4 flex flex-wrap gap-2">
+      {savedSearches.map((savedSearch) => (
+        <div
+          key={savedSearch.id}
+          className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-2 text-sm"
+        >
+          <button
+            type="button"
+            onClick={() => loadSavedSearch(savedSearch)}
+            className="font-bold text-blue-700 underline"
+            title={savedSearch.createdAt}
+          >
+            {savedSearch.query} ({savedSearch.fromYear}-{savedSearch.toYear})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => deleteSavedSearch(savedSearch.id)}
+            className="rounded-full bg-red-50 px-2 py-1 text-xs font-bold text-red-700 transition active:scale-95 hover:bg-red-100"
+          >
+            {isArabic ? "حذف" : "Delete"}
+          </button>
+        </div>
+      ))}
+    </div>
+  )}
+
+  {savedSearches.length === 0 && (
+    <p className="mt-3 text-sm text-gray-500">
+      {isArabic
+        ? "لا توجد بحوث محفوظة حالياً."
+        : "No saved searches yet."}
+    </p>
+  )}
+</div>
           {searchMessage && (
             <p className="mt-4 rounded-xl bg-gray-50 p-3 text-sm font-semibold text-gray-700">
               {searchMessage}
