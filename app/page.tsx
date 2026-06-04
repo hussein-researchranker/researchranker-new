@@ -505,7 +505,14 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
       setToastMessage("");
     }, 2200);
   }
-
+function resetFilters() {
+  setQuartileFilter("All");
+  setDoiFilter("All");
+  setJournalFilter("");
+  setMatchConfidenceFilter("All");
+  setSortOption("Newest first");
+  showToast(isArabic ? "تمت إعادة ضبط الفلاتر" : "Filters reset");
+}
   async function handleSearch() {
     const cleanQuery = query.trim();
 
@@ -1026,7 +1033,7 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
 )}
           {articles.length > 0 && (
             <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-<div className="grid grid-cols-1 gap-4 md:grid-cols-7">
+<div className="grid grid-cols-1 gap-4 md:grid-cols-8">
                   <div>
                   <label className="text-sm font-bold text-gray-700">
                     {t.citationStyle}
@@ -1127,6 +1134,15 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
   </select>
 </div>
                 <div className="flex items-end">
+                  <div className="flex items-end">
+  <button
+    type="button"
+    onClick={resetFilters}
+    className="w-full rounded-xl border border-gray-300 bg-white px-5 py-3 font-bold text-gray-800 transition active:scale-95 hover:bg-gray-50"
+  >
+    {isArabic ? "إعادة ضبط الفلاتر" : "Reset filters"}
+  </button>
+</div>
                   <button
                     type="button"
                     onClick={downloadWord}
