@@ -46,6 +46,7 @@ type SortOption =
   | "Q1 first"
   | "DOI first"
   | "SCImago indexed first";
+  type DoiFilter = "All" | "Has DOI" | "No DOI";
 type Language = "en" | "ar";
 type QualityDashboardStats = {
   total: number;
@@ -72,6 +73,7 @@ const sortOptions: SortOption[] = [
   "DOI first",
   "SCImago indexed first",
 ];
+const doiFilters: DoiFilter[] = ["All", "Has DOI", "No DOI"];
 const uiText = {
   en: {
     appTitle: "ResearchRanker",
@@ -317,11 +319,11 @@ export default function Home() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchMessage, setSearchMessage] = useState("");
 
-  const [citationStyle, setCitationStyle] = useState<CitationStyle>("IEEE");
+const [citationStyle, setCitationStyle] = useState<CitationStyle>("IEEE");
 const [quartileFilter, setQuartileFilter] = useState<QuartileFilter>("All");
+const [doiFilter, setDoiFilter] = useState<DoiFilter>("All");
 const [sortOption, setSortOption] = useState<SortOption>("Newest first");
 const [toastMessage, setToastMessage] = useState("");
-
 const filteredArticles = useMemo(() => {
   let result = [...articles];
 
@@ -334,7 +336,13 @@ const filteredArticles = useMemo(() => {
       result = result.filter((article) => article.quartile === quartileFilter);
     }
   }
+if (doiFilter === "Has DOI") {
+  result = result.filter((article) => Boolean(article.doi));
+}
 
+if (doiFilter === "No DOI") {
+  result = result.filter((article) => !article.doi);
+}
   const getQuartileRank = (quartile: string) => {
     if (quartile === "Q1") return 1;
     if (quartile === "Q2") return 2;
@@ -371,7 +379,7 @@ const filteredArticles = useMemo(() => {
   }
 
   return result;
-}, [articles, quartileFilter, sortOption]);
+}, [articles, quartileFilter, doiFilter, sortOption]);
   const qualityDashboardStats = useMemo<QualityDashboardStats>(() => {
   return articles.reduce(
     (stats, article) => {
@@ -986,7 +994,7 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
 )}
           {articles.length > 0 && (
             <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+             <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
                 <div>
                   <label className="text-sm font-bold text-gray-700">
                     {t.citationStyle}
@@ -1036,6 +1044,22 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
     {sortOptions.map((option) => (
       <option key={option} value={option}>
         {option}
+      </option>
+    ))}
+  </select>
+</div>
+<div>
+  <label className="text-sm font-bold text-gray-700">
+    {isArabic ? "فلترة DOI" : "DOI filter"}
+  </label>
+  <select
+    value={doiFilter}
+    onChange={(event) => setDoiFilter(event.target.value as DoiFilter)}
+    className="mt-2 w-full rounded-xl border border-gray-300 bg-white p-3"
+  >
+    {doiFilters.map((filter) => (
+      <option key={filter} value={filter}>
+        {filter}
       </option>
     ))}
   </select>
