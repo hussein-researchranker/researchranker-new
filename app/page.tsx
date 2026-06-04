@@ -29,7 +29,15 @@ type Article = {
   publisher: string;
   issn: string;
 };
-
+type JournalCarouselItem = {
+  journal: string;
+  quartile: string;
+  indexingStatus: string;
+  sjr: string;
+  hIndex: string;
+  publisher: string;
+  issn: string;
+};
 type CitationStyle = "IEEE" | "Vancouver" | "APA";
 type QuartileFilter = "All" | "Q1" | "Q2" | "Q3" | "Q4" | "Not found";
 type Language = "en" | "ar";
@@ -294,7 +302,29 @@ export default function Home() {
 
     return articles.filter((article) => article.quartile === quartileFilter);
   }, [articles, quartileFilter]);
+const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
+  const journals = new Map<string, JournalCarouselItem>();
 
+  articles.forEach((article) => {
+    const journalKey = article.journal.toLowerCase().trim();
+
+    if (!journalKey || journals.has(journalKey)) {
+      return;
+    }
+
+    journals.set(journalKey, {
+      journal: article.journal,
+      quartile: article.quartile || "Not found",
+      indexingStatus: article.indexingStatus || "Unknown / check manually",
+      sjr: article.sjr,
+      hIndex: article.hIndex,
+      publisher: article.publisher,
+      issn: article.issn,
+    });
+  });
+
+  return Array.from(journals.values()).slice(0, 30);
+}, [articles]);
   useEffect(() => {
     async function loadNews() {
       try {
@@ -660,7 +690,105 @@ export default function Home() {
               {searchMessage}
             </p>
           )}
+{journalCarouselItems.length > 0 && (
+  <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4">
+    <style>
+      {`
+        @keyframes journalCarouselScroll {
+          0% {
+            transform: translateX(0);
+          }
+          100% {
+            transform: translateX(-50%);
+          }
+        }
 
+        .journal-carousel-track {
+          animation: journalCarouselScroll 35s linear infinite;
+        }
+
+        .journal-carousel-track:hover {
+          animation-play-state: paused;
+        }
+      `}
+    </style>
+
+    <div className="flex items-center justify-between gap-3">
+      <div>
+        <h3 className="text-xl font-bold text-gray-900">
+          {isArabic ? "سلايدر المجلات العلمية" : "Journal Classification Carousel"}
+        </h3>
+
+        <p className="mt-1 text-sm text-gray-600">
+          {isArabic
+            ? "استعراض تفاعلي للمجلات الموجودة في نتائج البحث مع الربع وحالة الفهرسة."
+            : "Interactive overview of journals found in the current search results with quartile and indexing status."}
+        </p>
+      </div>
+
+      <span className="rounded-full bg-gray-100 px-3 py-1 text-sm font-bold text-gray-700">
+        {journalCarouselItems.length} {isArabic ? "مجلة" : "journals"}
+      </span>
+    </div>
+
+    <div className="mt-5 overflow-hidden">
+      <div className="journal-carousel-track flex w-max gap-4">
+        {[...journalCarouselItems, ...journalCarouselItems].map(
+          (journal, index) => (
+            <div
+              key={`${journal.journal}-${index}`}
+              className="w-80 shrink-0 rounded-2xl border border-gray-200 bg-gray-50 p-4 shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <h4 className="line-clamp-2 text-base font-bold text-gray-900">
+                  {journal.journal}
+                </h4>
+
+                <span
+                  className={`shrink-0 rounded-full border px-3 py-1 text-sm font-bold ${getQuartileBadgeClass(
+                    journal.quartile
+                  )}`}
+                >
+                  {journal.quartile}
+                </span>
+              </div>
+
+              <p className="mt-3 text-sm font-semibold text-green-700">
+                {journal.indexingStatus}
+              </p>
+
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-700">
+                {journal.sjr && (
+                  <p>
+                    <strong>SJR:</strong> {journal.sjr}
+                  </p>
+                )}
+
+                {journal.hIndex && (
+                  <p>
+                    <strong>H-index:</strong> {journal.hIndex}
+                  </p>
+                )}
+
+                {journal.publisher && (
+                  <p className="col-span-2 line-clamp-1">
+                    <strong>{t.publisher}:</strong> {journal.publisher}
+                  </p>
+                )}
+
+                {journal.issn && (
+                  <p className="col-span-2 line-clamp-1">
+                    <strong>{t.issn}:</strong> {journal.issn}
+                  </p>
+                )}
+              </div>
+            </div>
+          )
+        )}
+      </div>
+    </div>
+  </section>
+)}
           {articles.length > 0 && (
             <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-4">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
