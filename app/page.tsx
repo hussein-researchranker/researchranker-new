@@ -322,6 +322,7 @@ export default function Home() {
 const [citationStyle, setCitationStyle] = useState<CitationStyle>("IEEE");
 const [quartileFilter, setQuartileFilter] = useState<QuartileFilter>("All");
 const [doiFilter, setDoiFilter] = useState<DoiFilter>("All");
+const [journalFilter, setJournalFilter] = useState("");
 const [sortOption, setSortOption] = useState<SortOption>("Newest first");
 const [toastMessage, setToastMessage] = useState("");
 const filteredArticles = useMemo(() => {
@@ -342,6 +343,13 @@ if (doiFilter === "Has DOI") {
 
 if (doiFilter === "No DOI") {
   result = result.filter((article) => !article.doi);
+}
+if (journalFilter.trim()) {
+  const normalizedJournalFilter = journalFilter.toLowerCase().trim();
+
+  result = result.filter((article) =>
+    article.journal.toLowerCase().includes(normalizedJournalFilter)
+  );
 }
   const getQuartileRank = (quartile: string) => {
     if (quartile === "Q1") return 1;
@@ -379,7 +387,7 @@ if (doiFilter === "No DOI") {
   }
 
   return result;
-}, [articles, quartileFilter, doiFilter, sortOption]);
+  }, [articles, quartileFilter, doiFilter, journalFilter, sortOption]);
   const qualityDashboardStats = useMemo<QualityDashboardStats>(() => {
   return articles.reduce(
     (stats, article) => {
@@ -994,8 +1002,8 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
 )}
           {articles.length > 0 && (
             <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-             <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
-                <div>
+<div className="grid grid-cols-1 gap-4 md:grid-cols-6">
+                  <div>
                   <label className="text-sm font-bold text-gray-700">
                     {t.citationStyle}
                   </label>
@@ -1063,6 +1071,18 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
       </option>
     ))}
   </select>
+</div>
+<div>
+  <label className="text-sm font-bold text-gray-700">
+    {isArabic ? "فلترة باسم المجلة" : "Journal name filter"}
+  </label>
+  <input
+    type="text"
+    value={journalFilter}
+    onChange={(event) => setJournalFilter(event.target.value)}
+    placeholder={isArabic ? "مثال: Medicine" : "Example: Medicine"}
+    className="mt-2 w-full rounded-xl border border-gray-300 bg-white p-3"
+  />
 </div>
                 <div className="flex items-end">
                   <button
