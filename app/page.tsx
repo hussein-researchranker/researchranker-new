@@ -41,6 +41,11 @@ type JournalCarouselItem = {
 };
 type CitationStyle = "IEEE" | "Vancouver" | "APA";
 type QuartileFilter = "All" | "Q1" | "Q2" | "Q3" | "Q4" | "Not found";
+type SortOption =
+  | "Newest first"
+  | "Q1 first"
+  | "DOI first"
+  | "SCImago indexed first";
 type Language = "en" | "ar";
 type QualityDashboardStats = {
   total: number;
@@ -61,7 +66,12 @@ const quartileFilters: QuartileFilter[] = [
   "Q4",
   "Not found",
 ];
-
+const sortOptions: SortOption[] = [
+  "Newest first",
+  "Q1 first",
+  "DOI first",
+  "SCImago indexed first",
+];
 const uiText = {
   en: {
     appTitle: "ResearchRanker",
@@ -308,20 +318,60 @@ export default function Home() {
   const [searchMessage, setSearchMessage] = useState("");
 
   const [citationStyle, setCitationStyle] = useState<CitationStyle>("IEEE");
-  const [quartileFilter, setQuartileFilter] = useState<QuartileFilter>("All");
-  const [toastMessage, setToastMessage] = useState("");
+const [quartileFilter, setQuartileFilter] = useState<QuartileFilter>("All");
+const [sortOption, setSortOption] = useState<SortOption>("Newest first");
+const [toastMessage, setToastMessage] = useState("");
 
-  const filteredArticles = useMemo(() => {
-    if (quartileFilter === "All") return articles;
+const filteredArticles = useMemo(() => {
+  let result = [...articles];
 
+  if (quartileFilter !== "All") {
     if (quartileFilter === "Not found") {
-      return articles.filter(
+      result = result.filter(
         (article) => !article.quartile || article.quartile === "Not found"
       );
+    } else {
+      result = result.filter((article) => article.quartile === quartileFilter);
     }
+  }
 
-    return articles.filter((article) => article.quartile === quartileFilter);
-  }, [articles, quartileFilter]);
+  const getQuartileRank = (quartile: string) => {
+    if (quartile === "Q1") return 1;
+    if (quartile === "Q2") return 2;
+    if (quartile === "Q3") return 3;
+    if (quartile === "Q4") return 4;
+    return 5;
+  };
+
+  const getYear = (pubdate: string) => {
+    const match = pubdate.match(/\b(19|20)\d{2}\b/);
+    return match ? Number(match[0]) : 0;
+  };
+
+  if (sortOption === "Newest first") {
+    result.sort((a, b) => getYear(b.pubdate) - getYear(a.pubdate));
+  }
+
+  if (sortOption === "Q1 first") {
+    result.sort(
+      (a, b) => getQuartileRank(a.quartile) - getQuartileRank(b.quartile)
+    );
+  }
+
+  if (sortOption === "DOI first") {
+    result.sort((a, b) => Number(Boolean(b.doi)) - Number(Boolean(a.doi)));
+  }
+
+  if (sortOption === "SCImago indexed first") {
+    result.sort(
+      (a, b) =>
+        Number(b.indexingStatus?.includes("SCImago Indexed")) -
+        Number(a.indexingStatus?.includes("SCImago Indexed"))
+    );
+  }
+
+  return result;
+}, [articles, quartileFilter, sortOption]);
   const qualityDashboardStats = useMemo<QualityDashboardStats>(() => {
   return articles.reduce(
     (stats, article) => {
@@ -936,7 +986,7 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
 )}
           {articles.length > 0 && (
             <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
                 <div>
                   <label className="text-sm font-bold text-gray-700">
                     {t.citationStyle}
@@ -974,7 +1024,22 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
                     ))}
                   </select>
                 </div>
-
+<div>
+  <label className="text-sm font-bold text-gray-700">
+    {isArabic ? "ترتيب النتائج" : "Sort by"}
+  </label>
+  <select
+    value={sortOption}
+    onChange={(event) => setSortOption(event.target.value as SortOption)}
+    className="mt-2 w-full rounded-xl border border-gray-300 bg-white p-3"
+  >
+    {sortOptions.map((option) => (
+      <option key={option} value={option}>
+        {option}
+      </option>
+    ))}
+  </select>
+</div>
                 <div className="flex items-end">
                   <button
                     type="button"
