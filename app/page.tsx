@@ -806,13 +806,20 @@ function resetFilters() {
           )}
 
           <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-6">
-            <input
-              type="text"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t.searchPlaceholder}
-              className="rounded-xl border border-gray-300 p-3 md:col-span-3"
-            />
+           <input
+  type="text"
+  value={query}
+  onChange={(event) => setQuery(event.target.value)}
+  onKeyDown={(event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      handleSearch();
+    }
+  }}
+  placeholder={t.searchPlaceholder}
+  className="rounded-xl border border-gray-300 p-3 md:col-span-3"
+/>
+            /
 
             <input
               type="number"
