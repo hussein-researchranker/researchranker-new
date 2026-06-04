@@ -1,6 +1,11 @@
 import path from "path";
 import { readFile } from "fs/promises";
 
+type MatchConfidence =
+  | "Exact title match"
+  | "Approximate title match"
+  | "Not matched";
+
 type PubMedArticle = {
   pmid: string;
   title: string;
@@ -16,6 +21,7 @@ type PubMedArticle = {
   hIndex: string;
   publisher: string;
   issn: string;
+  matchConfidence: MatchConfidence;
 };
 
 type ScimagoJournal = {
@@ -167,35 +173,56 @@ async function loadScimagoData() {
 function matchScimagoJournal(
   journalName: string,
   scimagoJournals: ScimagoJournal[]
-) {
+): {
+  journal: ScimagoJournal | null;
+  confidence: MatchConfidence;
+} {
   const normalizedJournal = normalizeTitle(journalName);
 
   if (!normalizedJournal) {
-    return null;
+    return {
+      journal: null,
+      confidence: "Not matched",
+    };
   }
 
   const exactMatch = scimagoJournals.find(
-    (journal) => journal.normalizedTitle === normalizedJournal
+    (scimagoJournal: ScimagoJournal) =>
+      scimagoJournal.normalizedTitle === normalizedJournal
   );
 
   if (exactMatch) {
-    return exactMatch;
+    return {
+      journal: exactMatch,
+      confidence: "Exact title match",
+    };
   }
 
-  const partialMatch = scimagoJournals.find((journal) => {
-    if (!journal.normalizedTitle) {
-      return false;
+  const partialMatch = scimagoJournals.find(
+    (scimagoJournal: ScimagoJournal) => {
+      if (!scimagoJournal.normalizedTitle) {
+        return false;
+      }
+
+      return (
+        scimagoJournal.normalizedTitle.includes(normalizedJournal) ||
+        normalizedJournal.includes(scimagoJournal.normalizedTitle)
+      );
     }
+  );
 
-    return (
-      journal.normalizedTitle.includes(normalizedJournal) ||
-      normalizedJournal.includes(journal.normalizedTitle)
-    );
-  });
+  if (partialMatch) {
+    return {
+      journal: partialMatch,
+      confidence: "Approximate title match",
+    };
+  }
 
-  return partialMatch || null;
+  return {
+    journal: null,
+    confidence: "Not matched",
+  };
 }
-
 function buildIndexingStatus(
   match: ScimagoJournal | null,
   source: string
@@ -334,24 +361,26 @@ export async function GET(request: Request) {
           cleanText(record.fulljournalname || record.source) ||
           "Unknown journal";
 
-        const scimagoMatch = matchScimagoJournal(journal, scimagoJournals);
+const scimagoMatchResult = matchScimagoJournal(journal, scimagoJournals);
+const scimagoMatch = scimagoMatchResult.journal;
 
-        return {
-          pmid,
-          title: cleanText(record.title) || "No title available",
-          journal,
-          pubdate: cleanText(record.pubdate) || "No date available",
-          authors: getAuthors(article),
-          doi: getDoi(article),
-          source: "PubMed",
-          sourceUrl: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
-          quartile: scimagoMatch?.quartile || "Not found",
-          indexingStatus: buildIndexingStatus(scimagoMatch, "PubMed"),
-          sjr: scimagoMatch?.sjr || "",
-          hIndex: scimagoMatch?.hIndex || "",
-          publisher: scimagoMatch?.publisher || "",
-          issn: scimagoMatch?.issn || "",
-        };
+return {
+  pmid,
+  title: cleanText(record.title) || "No title available",
+  journal,
+  pubdate: cleanText(record.pubdate) || "No date available",
+  authors: getAuthors(article),
+  doi: getDoi(article),
+  source: "PubMed",
+  sourceUrl: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
+  quartile: scimagoMatch?.quartile || "Not found",
+  indexingStatus: buildIndexingStatus(scimagoMatch, "PubMed"),
+  sjr: scimagoMatch?.sjr || "",
+  hIndex: scimagoMatch?.hIndex || "",
+  publisher: scimagoMatch?.publisher || "",
+  issn: scimagoMatch?.issn || "",
+  matchConfidence: scimagoMatchResult.confidence,
+};
       });
 
     return Response.json(articles);

@@ -28,6 +28,7 @@ type Article = {
   hIndex: string;
   publisher: string;
   issn: string;
+  matchConfidence: string;
 };
 type JournalCarouselItem = {
   journal: string;
@@ -218,7 +219,17 @@ function getQuartileBadgeClass(quartile: string) {
   if (quartile === "Q4") return "bg-red-100 text-red-800 border-red-200";
   return "bg-gray-100 text-gray-800 border-gray-200";
 }
+function getMatchConfidenceBadgeClass(matchConfidence: string) {
+  if (matchConfidence === "Exact title match") {
+    return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  }
 
+  if (matchConfidence === "Approximate title match") {
+    return "bg-amber-100 text-amber-800 border-amber-200";
+  }
+
+  return "bg-gray-100 text-gray-800 border-gray-200";
+}
 function cleanText(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -1022,7 +1033,18 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
                     <strong>{t.doi}:</strong> {article.doi}
                   </p>
                 )}
-
+{article.matchConfidence && (
+  <div className="mt-3">
+    <span
+      className={`inline-flex rounded-full border px-3 py-1 text-sm font-bold ${getMatchConfidenceBadgeClass(
+        article.matchConfidence
+      )}`}
+    >
+      {isArabic ? "دقة المطابقة: " : "Match confidence: "}
+      {article.matchConfidence}
+    </span>
+  </div>
+)}
                 <div className="mt-4 grid grid-cols-1 gap-2 rounded-xl bg-gray-50 p-4 text-sm text-gray-700 md:grid-cols-2">
                   <p>
                     <strong>{t.quartile}:</strong>{" "}
