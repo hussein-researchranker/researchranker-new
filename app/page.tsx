@@ -47,6 +47,11 @@ type SortOption =
   | "DOI first"
   | "SCImago indexed first";
   type DoiFilter = "All" | "Has DOI" | "No DOI";
+  type MatchConfidenceFilter =
+  | "All"
+  | "Exact title match"
+  | "Approximate title match"
+  | "Not matched";
 type Language = "en" | "ar";
 type QualityDashboardStats = {
   total: number;
@@ -74,6 +79,12 @@ const sortOptions: SortOption[] = [
   "SCImago indexed first",
 ];
 const doiFilters: DoiFilter[] = ["All", "Has DOI", "No DOI"];
+const matchConfidenceFilters: MatchConfidenceFilter[] = [
+  "All",
+  "Exact title match",
+  "Approximate title match",
+  "Not matched",
+];
 const uiText = {
   en: {
     appTitle: "ResearchRanker",
@@ -323,6 +334,8 @@ const [citationStyle, setCitationStyle] = useState<CitationStyle>("IEEE");
 const [quartileFilter, setQuartileFilter] = useState<QuartileFilter>("All");
 const [doiFilter, setDoiFilter] = useState<DoiFilter>("All");
 const [journalFilter, setJournalFilter] = useState("");
+const [matchConfidenceFilter, setMatchConfidenceFilter] =
+  useState<MatchConfidenceFilter>("All");
 const [sortOption, setSortOption] = useState<SortOption>("Newest first");
 const [toastMessage, setToastMessage] = useState("");
 const filteredArticles = useMemo(() => {
@@ -350,6 +363,11 @@ if (journalFilter.trim()) {
   result = result.filter((article) =>
     article.journal.toLowerCase().includes(normalizedJournalFilter)
   );
+  if (matchConfidenceFilter !== "All") {
+  result = result.filter(
+    (article) => article.matchConfidence === matchConfidenceFilter
+  );
+}
 }
   const getQuartileRank = (quartile: string) => {
     if (quartile === "Q1") return 1;
@@ -387,8 +405,14 @@ if (journalFilter.trim()) {
   }
 
   return result;
-  }, [articles, quartileFilter, doiFilter, journalFilter, sortOption]);
-  const qualityDashboardStats = useMemo<QualityDashboardStats>(() => {
+}, [
+  articles,
+  quartileFilter,
+  doiFilter,
+  journalFilter,
+  matchConfidenceFilter,
+  sortOption,
+]);  const qualityDashboardStats = useMemo<QualityDashboardStats>(() => {
   return articles.reduce(
     (stats, article) => {
       const quartile = article.quartile || "Not found";
@@ -1002,7 +1026,7 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
 )}
           {articles.length > 0 && (
             <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-<div className="grid grid-cols-1 gap-4 md:grid-cols-6">
+<div className="grid grid-cols-1 gap-4 md:grid-cols-7">
                   <div>
                   <label className="text-sm font-bold text-gray-700">
                     {t.citationStyle}
@@ -1083,6 +1107,24 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
     placeholder={isArabic ? "مثال: Medicine" : "Example: Medicine"}
     className="mt-2 w-full rounded-xl border border-gray-300 bg-white p-3"
   />
+</div>
+<div>
+  <label className="text-sm font-bold text-gray-700">
+    {isArabic ? "دقة مطابقة SCImago" : "Match confidence"}
+  </label>
+  <select
+    value={matchConfidenceFilter}
+    onChange={(event) =>
+      setMatchConfidenceFilter(event.target.value as MatchConfidenceFilter)
+    }
+    className="mt-2 w-full rounded-xl border border-gray-300 bg-white p-3"
+  >
+    {matchConfidenceFilters.map((filter) => (
+      <option key={filter} value={filter}>
+        {filter}
+      </option>
+    ))}
+  </select>
 </div>
                 <div className="flex items-end">
                   <button
