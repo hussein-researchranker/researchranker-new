@@ -41,7 +41,16 @@ type JournalCarouselItem = {
 type CitationStyle = "IEEE" | "Vancouver" | "APA";
 type QuartileFilter = "All" | "Q1" | "Q2" | "Q3" | "Q4" | "Not found";
 type Language = "en" | "ar";
-
+type QualityDashboardStats = {
+  total: number;
+  q1: number;
+  q2: number;
+  q3: number;
+  q4: number;
+  notFound: number;
+  withDoi: number;
+  scimagoIndexed: number;
+};
 const citationStyles: CitationStyle[] = ["IEEE", "Vancouver", "APA"];
 const quartileFilters: QuartileFilter[] = [
   "All",
@@ -302,6 +311,44 @@ export default function Home() {
 
     return articles.filter((article) => article.quartile === quartileFilter);
   }, [articles, quartileFilter]);
+  const qualityDashboardStats = useMemo<QualityDashboardStats>(() => {
+  return articles.reduce(
+    (stats, article) => {
+      const quartile = article.quartile || "Not found";
+
+      stats.total += 1;
+
+      if (quartile === "Q1") stats.q1 += 1;
+      else if (quartile === "Q2") stats.q2 += 1;
+      else if (quartile === "Q3") stats.q3 += 1;
+      else if (quartile === "Q4") stats.q4 += 1;
+      else stats.notFound += 1;
+
+      if (article.doi) {
+        stats.withDoi += 1;
+      }
+
+      if (
+        article.indexingStatus &&
+        article.indexingStatus.toLowerCase().includes("scimago indexed")
+      ) {
+        stats.scimagoIndexed += 1;
+      }
+
+      return stats;
+    },
+    {
+      total: 0,
+      q1: 0,
+      q2: 0,
+      q3: 0,
+      q4: 0,
+      notFound: 0,
+      withDoi: 0,
+      scimagoIndexed: 0,
+    }
+  );
+}, [articles]);
 const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
   const journals = new Map<string, JournalCarouselItem>();
 
@@ -785,6 +832,93 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
             </div>
           )
         )}
+      </div>
+    </div>
+  </section>
+)}
+{articles.length > 0 && (
+  <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-5">
+    <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+      <div>
+        <h3 className="text-xl font-bold text-gray-900">
+          {isArabic ? "لوحة جودة النتائج" : "Journal Quality Dashboard"}
+        </h3>
+
+        <p className="mt-1 text-sm text-gray-600">
+          {isArabic
+            ? "ملخص سريع لجودة النتائج حسب الربع، DOI، وحالة الفهرسة."
+            : "Quick overview of result quality by quartile, DOI availability, and indexing status."}
+        </p>
+      </div>
+
+      <span className="rounded-full bg-gray-100 px-4 py-2 text-sm font-bold text-gray-700">
+        {qualityDashboardStats.total} {isArabic ? "نتيجة" : "results"}
+      </span>
+    </div>
+
+    <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+        <p className="text-sm font-bold text-gray-500">
+          {isArabic ? "كل النتائج" : "Total"}
+        </p>
+        <p className="mt-2 text-3xl font-bold text-gray-900">
+          {qualityDashboardStats.total}
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
+        <p className="text-sm font-bold text-green-700">Q1</p>
+        <p className="mt-2 text-3xl font-bold text-green-800">
+          {qualityDashboardStats.q1}
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+        <p className="text-sm font-bold text-blue-700">Q2</p>
+        <p className="mt-2 text-3xl font-bold text-blue-800">
+          {qualityDashboardStats.q2}
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-4">
+        <p className="text-sm font-bold text-yellow-700">Q3</p>
+        <p className="mt-2 text-3xl font-bold text-yellow-800">
+          {qualityDashboardStats.q3}
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+        <p className="text-sm font-bold text-red-700">Q4</p>
+        <p className="mt-2 text-3xl font-bold text-red-800">
+          {qualityDashboardStats.q4}
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+        <p className="text-sm font-bold text-gray-500">
+          {isArabic ? "غير موجود في SCImago" : "Not found"}
+        </p>
+        <p className="mt-2 text-3xl font-bold text-gray-900">
+          {qualityDashboardStats.notFound}
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
+        <p className="text-sm font-bold text-purple-700">
+          {isArabic ? "تحتوي DOI" : "With DOI"}
+        </p>
+        <p className="mt-2 text-3xl font-bold text-purple-800">
+          {qualityDashboardStats.withDoi}
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+        <p className="text-sm font-bold text-emerald-700">
+          {isArabic ? "مفهرسة في SCImago" : "SCImago indexed"}
+        </p>
+        <p className="mt-2 text-3xl font-bold text-emerald-800">
+          {qualityDashboardStats.scimagoIndexed}
+        </p>
       </div>
     </div>
   </section>
