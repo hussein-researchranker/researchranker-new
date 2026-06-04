@@ -32,9 +32,167 @@ type Article = {
 
 type CitationStyle = "IEEE" | "Vancouver" | "APA";
 type QuartileFilter = "All" | "Q1" | "Q2" | "Q3" | "Q4" | "Not found";
+type Language = "en" | "ar";
 
 const citationStyles: CitationStyle[] = ["IEEE", "Vancouver", "APA"];
-const quartileFilters: QuartileFilter[] = ["All", "Q1", "Q2", "Q3", "Q4", "Not found"];
+const quartileFilters: QuartileFilter[] = [
+  "All",
+  "Q1",
+  "Q2",
+  "Q3",
+  "Q4",
+  "Not found",
+];
+
+const uiText = {
+  en: {
+    appTitle: "ResearchRanker",
+    appSubtitle:
+      "Search research articles, classify journal quartiles, check indexing status, export results, and follow scholarly publishing news.",
+    createdBy: "Created by Hussein Jawad Kadhim",
+    signIn: "Sign in",
+    signedIn: "Signed in",
+    guestMode: "Guest mode",
+    loading: "Loading...",
+    newsLabel: "Live Journal & Publishing News",
+    newsTitle: "Latest updates before you search",
+    newsDescription:
+      "Automatically updated news about journals, indexing, publishing ethics, retractions, open access, and research integrity.",
+    openNewsApi: "Open News API",
+    loadingNews: "Loading live publishing news...",
+    noNews: "Live news could not be loaded right now. Please try again later.",
+    searchTitle: "Research Search",
+    searchDescription: "Search PubMed articles by topic and publication year range.",
+    searchPlaceholder:
+      "Search topic, example: zonulin inflammation hemodialysis",
+    fromYear: "From year",
+    toYear: "To year",
+    search: "Search",
+    searching: "Searching...",
+    emptyQuery: "Please enter a search topic first.",
+    noResults: "No PubMed results found for this search.",
+    searchFailed:
+      "Search failed. Please check your connection or try another topic.",
+    foundResults: "PubMed result(s) found.",
+    citationStyle: "Citation style",
+    quartileFilter: "Quartile filter",
+    downloadWord: "Download Word",
+    copySource: "Copy source",
+    openPubMed: "Open in PubMed",
+    journal: "Journal",
+    date: "Date",
+    authors: "Authors",
+    doi: "DOI",
+    quartile: "Quartile",
+    indexingStatus: "Indexing Status",
+    publisher: "Publisher",
+    issn: "ISSN",
+    support: "Support",
+    supportDescription:
+      "If you experience a search, export, citation, or account problem, contact support.",
+    contactSupport: "Contact Support",
+    copied: "Source copied in",
+    copyFailed: "Could not copy the source",
+    noDownloadResults: "No results to download",
+    wordDownloaded: "Word file downloaded in",
+    language: "Language",
+    arabicSearchNote:
+      "Arabic search helper is active: common Arabic scientific terms are converted to English before searching PubMed.",
+  },
+  ar: {
+    appTitle: "ResearchRanker",
+    appSubtitle:
+      "ابحث عن المقالات العلمية، صنّف المجلات حسب الربع، تحقق من حالة الفهرسة، صدّر النتائج، وتابع أخبار النشر العلمي.",
+    createdBy: "أنشئ بواسطة Hussein Jawad Kadhim",
+    signIn: "تسجيل الدخول",
+    signedIn: "تم تسجيل الدخول",
+    guestMode: "وضع الزائر",
+    loading: "جاري التحميل...",
+    newsLabel: "أخبار المجلات والنشر العلمي",
+    newsTitle: "آخر التحديثات قبل البحث",
+    newsDescription:
+      "أخبار محدثة تلقائياً حول المجلات، الفهرسة، أخلاقيات النشر، السحب العلمي، الوصول المفتوح، ونزاهة البحث العلمي.",
+    openNewsApi: "فتح API الأخبار",
+    loadingNews: "جاري تحميل أخبار النشر العلمي...",
+    noNews: "تعذر تحميل الأخبار حالياً. حاول لاحقاً.",
+    searchTitle: "البحث العلمي",
+    searchDescription: "ابحث في PubMed حسب الموضوع وسنوات النشر.",
+    searchPlaceholder:
+      "اكتب موضوع البحث، مثال: زانولين التهاب غسيل الكلى",
+    fromYear: "من سنة",
+    toYear: "إلى سنة",
+    search: "بحث",
+    searching: "جاري البحث...",
+    emptyQuery: "يرجى إدخال موضوع البحث أولاً.",
+    noResults: "لم يتم العثور على نتائج في PubMed لهذا البحث.",
+    searchFailed: "فشل البحث. تحقق من الاتصال أو جرّب موضوعاً آخر.",
+    foundResults: "نتيجة من PubMed تم العثور عليها.",
+    citationStyle: "نمط التوثيق",
+    quartileFilter: "فلترة حسب الربع",
+    downloadWord: "تحميل Word",
+    copySource: "نسخ المصدر",
+    openPubMed: "فتح في PubMed",
+    journal: "المجلة",
+    date: "التاريخ",
+    authors: "المؤلفون",
+    doi: "DOI",
+    quartile: "الربع",
+    indexingStatus: "حالة الفهرسة",
+    publisher: "الناشر",
+    issn: "ISSN",
+    support: "الدعم",
+    supportDescription:
+      "إذا واجهت مشكلة في البحث أو التصدير أو التوثيق أو الحساب، تواصل مع الدعم.",
+    contactSupport: "مراسلة الدعم",
+    copied: "تم نسخ المصدر بنمط",
+    copyFailed: "تعذر نسخ المصدر",
+    noDownloadResults: "لا توجد نتائج لتحميلها",
+    wordDownloaded: "تم تحميل ملف Word بنمط",
+    language: "اللغة",
+    arabicSearchNote:
+      "مساعد البحث العربي مفعّل: يتم تحويل المصطلحات العلمية العربية الشائعة إلى الإنجليزية قبل البحث في PubMed.",
+  },
+};
+
+const arabicSearchTerms: Record<string, string> = {
+  زانولين: "zonulin",
+  الزانولين: "zonulin",
+  التهاب: "inflammation",
+  الالتهاب: "inflammation",
+  التهابات: "inflammation",
+  "غسيل الكلى": "hemodialysis",
+  "الديلزة الدموية": "hemodialysis",
+  ديلزة: "dialysis",
+  الكلى: "kidney",
+  كلى: "kidney",
+  كلوي: "renal",
+  "الفشل الكلوي": "renal failure",
+  "مرض الكلى المزمن": "chronic kidney disease",
+  سكري: "diabetes",
+  السكري: "diabetes",
+  "داء السكري": "diabetes mellitus",
+  سرطان: "cancer",
+  "سرطان الثدي": "breast cancer",
+  كيمياء: "chemistry",
+  "الكيمياء الحياتية": "biochemistry",
+  فيزياء: "physics",
+  حاسوب: "computer science",
+  "ذكاء اصطناعي": "artificial intelligence",
+  "تعلم عميق": "deep learning",
+  رياضيات: "mathematics",
+  قانون: "law",
+  أحياء: "biology",
+  بكتيريا: "bacteria",
+  فيتامين: "vitamin",
+  "فيتامين د": "vitamin D",
+  كالسيوم: "calcium",
+  "هرمون جار الدرقية": "parathyroid hormone",
+  "الإجهاد التأكسدي": "oxidative stress",
+  أكسدة: "oxidative stress",
+  "مالوندايالديهايد": "malondialdehyde",
+  "انترلوكين 6": "interleukin 6",
+  "IL-6": "IL-6",
+};
 
 function getQuartileBadgeClass(quartile: string) {
   if (quartile === "Q1") return "bg-green-100 text-green-800 border-green-200";
@@ -46,6 +204,22 @@ function getQuartileBadgeClass(quartile: string) {
 
 function cleanText(value: string) {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function hasArabic(text: string) {
+  return /[\u0600-\u06FF]/.test(text);
+}
+
+function enhanceArabicQuery(query: string) {
+  let enhancedQuery = query;
+
+  Object.entries(arabicSearchTerms).forEach(([arabicTerm, englishTerm]) => {
+    if (query.includes(arabicTerm) && !enhancedQuery.includes(englishTerm)) {
+      enhancedQuery += ` ${englishTerm}`;
+    }
+  });
+
+  return cleanText(enhancedQuery);
 }
 
 function extractYear(pubdate: string) {
@@ -75,7 +249,9 @@ function formatCitation(article: Article, style: CitationStyle, index: number) {
     return `${authors}. ${title}. ${journal}. ${pubdate}.${doi ? ` doi: ${doi}.` : ""}`;
   }
 
-  return `${authors}. (${year}). ${title}. ${journal}. ${doi ? doiLink : article.sourceUrl}`;
+  return `${authors}. (${year}). ${title}. ${journal}. ${
+    doi ? doiLink : article.sourceUrl
+  }`;
 }
 
 function makeSafeFileName(value: string) {
@@ -88,6 +264,10 @@ function makeSafeFileName(value: string) {
 
 export default function Home() {
   const { isLoaded, isSignedIn } = useUser();
+
+  const [language, setLanguage] = useState<Language>("en");
+  const t = uiText[language];
+  const isArabic = language === "ar";
 
   const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(true);
@@ -107,7 +287,9 @@ export default function Home() {
     if (quartileFilter === "All") return articles;
 
     if (quartileFilter === "Not found") {
-      return articles.filter((article) => !article.quartile || article.quartile === "Not found");
+      return articles.filter(
+        (article) => !article.quartile || article.quartile === "Not found"
+      );
     }
 
     return articles.filter((article) => article.quartile === quartileFilter);
@@ -150,9 +332,13 @@ export default function Home() {
     const cleanQuery = query.trim();
 
     if (!cleanQuery) {
-      setSearchMessage("Please enter a search topic first.");
+      setSearchMessage(t.emptyQuery);
       return;
     }
+
+    const finalQuery = hasArabic(cleanQuery)
+      ? enhanceArabicQuery(cleanQuery)
+      : cleanQuery;
 
     setSearchLoading(true);
     setSearchMessage("");
@@ -161,7 +347,7 @@ export default function Home() {
 
     try {
       const params = new URLSearchParams({
-        query: cleanQuery,
+        query: finalQuery,
         fromYear,
         toYear,
       });
@@ -181,13 +367,13 @@ export default function Home() {
       setArticles(data);
 
       if (data.length === 0) {
-        setSearchMessage("No PubMed results found for this search.");
+        setSearchMessage(t.noResults);
       } else {
-        setSearchMessage(`Found ${data.length} PubMed result(s).`);
+        setSearchMessage(`${data.length} ${t.foundResults}`);
       }
     } catch (error) {
       console.error("Search failed:", error);
-      setSearchMessage("Search failed. Please check your connection or try another topic.");
+      setSearchMessage(t.searchFailed);
     } finally {
       setSearchLoading(false);
     }
@@ -198,16 +384,16 @@ export default function Home() {
 
     try {
       await navigator.clipboard.writeText(citation);
-      showToast(`تم نسخ المصدر بنمط ${citationStyle}`);
+      showToast(`${t.copied} ${citationStyle}`);
     } catch (error) {
       console.error("Copy failed:", error);
-      showToast("تعذر نسخ المصدر");
+      showToast(t.copyFailed);
     }
   }
 
   async function downloadWord() {
     if (filteredArticles.length === 0) {
-      showToast("لا توجد نتائج لتحميلها");
+      showToast(t.noDownloadResults);
       return;
     }
 
@@ -280,16 +466,25 @@ export default function Home() {
     });
 
     const blob = await Packer.toBlob(document);
-    const fileName = `ResearchRanker-${citationStyle}-${makeSafeFileName(query || "results")}.docx`;
+    const fileName = `ResearchRanker-${citationStyle}-${makeSafeFileName(
+      query || "results"
+    )}.docx`;
 
     saveAs(blob, fileName);
-    showToast(`تم تحميل ملف Word بنمط ${citationStyle}`);
+    showToast(`${t.wordDownloaded} ${citationStyle}`);
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 p-4 md:p-8">
+    <main
+      dir={isArabic ? "rtl" : "ltr"}
+      className="min-h-screen bg-gray-100 p-4 md:p-8"
+    >
       {toastMessage && (
-        <div className="fixed right-5 top-5 z-50 rounded-xl bg-black px-5 py-3 text-sm font-bold text-white shadow-lg">
+        <div
+          className={`fixed top-5 z-50 rounded-xl bg-black px-5 py-3 text-sm font-bold text-white shadow-lg ${
+            isArabic ? "left-5" : "right-5"
+          }`}
+        >
           {toastMessage}
         </div>
       )}
@@ -297,39 +492,53 @@ export default function Home() {
       <div className="mx-auto max-w-6xl rounded-2xl bg-white p-6 shadow md:p-8">
         <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <h1 className="text-4xl font-bold text-gray-900">ResearchRanker</h1>
+            <h1 className="text-4xl font-bold text-gray-900">{t.appTitle}</h1>
 
-            <p className="mt-3 max-w-3xl text-gray-600">
-              Search research articles, classify journal quartiles, check indexing status,
-              export results, and follow scholarly publishing news.
-            </p>
+            <p className="mt-3 max-w-3xl text-gray-600">{t.appSubtitle}</p>
 
             <p className="mt-2 text-sm font-semibold text-gray-500">
-              Created by Hussein Jawad Kadhim ·{" "}
-              <a href="mailto:husseinjk40@gmail.com" className="text-blue-600 underline">
+              {t.createdBy} ·{" "}
+              <a
+                href="mailto:husseinjk40@gmail.com"
+                className="text-blue-600 underline"
+              >
                 husseinjk40@gmail.com
               </a>
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            {!isLoaded && <span className="text-sm text-gray-500">Loading...</span>}
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={language}
+              onChange={(event) => setLanguage(event.target.value as Language)}
+              className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold"
+              aria-label={t.language}
+            >
+              <option value="en">English</option>
+              <option value="ar">العربية</option>
+            </select>
+
+            {!isLoaded && <span className="text-sm text-gray-500">{t.loading}</span>}
 
             {isLoaded && !isSignedIn && (
               <>
                 <SignInButton mode="modal">
                   <button className="rounded-xl bg-black px-5 py-3 text-sm font-bold text-white transition active:scale-95 hover:bg-gray-800">
-                    Sign in
+                    {t.signIn}
                   </button>
                 </SignInButton>
 
-                <span className="text-sm font-semibold text-gray-500">Guest mode</span>
+                <span className="text-sm font-semibold text-gray-500">
+                  {t.guestMode}
+                </span>
               </>
             )}
 
             {isLoaded && isSignedIn && (
               <>
-                <span className="text-sm font-semibold text-gray-600">Signed in</span>
+                <span className="text-sm font-semibold text-gray-600">
+                  {t.signedIn}
+                </span>
                 <UserButton />
               </>
             )}
@@ -340,17 +549,14 @@ export default function Home() {
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-sm font-bold uppercase tracking-wide text-blue-700">
-                Live Journal & Publishing News
+                {t.newsLabel}
               </p>
 
               <h2 className="mt-1 text-2xl font-bold text-gray-900">
-                Latest updates before you search
+                {t.newsTitle}
               </h2>
 
-              <p className="mt-2 text-sm text-gray-600">
-                Automatically updated news about journals, indexing, publishing ethics,
-                retractions, open access, and research integrity.
-              </p>
+              <p className="mt-2 text-sm text-gray-600">{t.newsDescription}</p>
             </div>
 
             <a
@@ -359,19 +565,19 @@ export default function Home() {
               rel="noopener noreferrer"
               className="rounded-xl bg-black px-5 py-3 text-sm font-bold text-white transition active:scale-95"
             >
-              Open News API
+              {t.openNewsApi}
             </a>
           </div>
 
           {newsLoading && (
             <p className="mt-5 text-sm font-semibold text-gray-600">
-              Loading live publishing news...
+              {t.loadingNews}
             </p>
           )}
 
           {!newsLoading && newsItems.length === 0 && (
             <p className="mt-5 rounded-xl bg-yellow-50 p-4 text-sm font-semibold text-yellow-900">
-              Live news could not be loaded right now. Please try again later.
+              {t.noNews}
             </p>
           )}
 
@@ -404,18 +610,22 @@ export default function Home() {
         </section>
 
         <section className="mt-8 rounded-2xl border border-gray-200 p-5">
-          <h2 className="text-2xl font-bold text-gray-900">Research Search</h2>
+          <h2 className="text-2xl font-bold text-gray-900">{t.searchTitle}</h2>
 
-          <p className="mt-2 text-gray-600">
-            Search PubMed articles by topic and publication year range.
-          </p>
+          <p className="mt-2 text-gray-600">{t.searchDescription}</p>
+
+          {isArabic && (
+            <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+              {t.arabicSearchNote}
+            </p>
+          )}
 
           <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-6">
             <input
               type="text"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search topic, example: zonulin inflammation hemodialysis"
+              placeholder={t.searchPlaceholder}
               className="rounded-xl border border-gray-300 p-3 md:col-span-3"
             />
 
@@ -424,7 +634,7 @@ export default function Home() {
               value={fromYear}
               onChange={(event) => setFromYear(event.target.value)}
               className="rounded-xl border border-gray-300 p-3"
-              placeholder="From year"
+              placeholder={t.fromYear}
             />
 
             <input
@@ -432,7 +642,7 @@ export default function Home() {
               value={toYear}
               onChange={(event) => setToYear(event.target.value)}
               className="rounded-xl border border-gray-300 p-3"
-              placeholder="To year"
+              placeholder={t.toYear}
             />
 
             <button
@@ -441,7 +651,7 @@ export default function Home() {
               disabled={searchLoading}
               className="rounded-xl bg-black px-5 py-3 font-bold text-white transition active:scale-95 disabled:bg-gray-400"
             >
-              {searchLoading ? "Searching..." : "Search"}
+              {searchLoading ? t.searching : t.search}
             </button>
           </div>
 
@@ -456,7 +666,7 @@ export default function Home() {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <div>
                   <label className="text-sm font-bold text-gray-700">
-                    Citation style
+                    {t.citationStyle}
                   </label>
                   <select
                     value={citationStyle}
@@ -475,7 +685,7 @@ export default function Home() {
 
                 <div>
                   <label className="text-sm font-bold text-gray-700">
-                    Quartile filter
+                    {t.quartileFilter}
                   </label>
                   <select
                     value={quartileFilter}
@@ -498,7 +708,7 @@ export default function Home() {
                     onClick={downloadWord}
                     className="w-full rounded-xl bg-blue-700 px-5 py-3 font-bold text-white transition active:scale-95 hover:bg-blue-800"
                   >
-                    Download Word
+                    {t.downloadWord}
                   </button>
                 </div>
               </div>
@@ -532,35 +742,35 @@ export default function Home() {
                 </div>
 
                 <p className="mt-3 text-sm text-gray-700">
-                  <strong>Journal:</strong> {article.journal}
+                  <strong>{t.journal}:</strong> {article.journal}
                 </p>
 
                 <p className="mt-1 text-sm text-gray-700">
-                  <strong>Date:</strong> {article.pubdate}
+                  <strong>{t.date}:</strong> {article.pubdate}
                 </p>
 
                 {article.authors && (
                   <p className="mt-1 text-sm text-gray-700">
-                    <strong>Authors:</strong> {article.authors}
+                    <strong>{t.authors}:</strong> {article.authors}
                   </p>
                 )}
 
                 {article.doi && (
                   <p className="mt-1 text-sm text-gray-700">
-                    <strong>DOI:</strong> {article.doi}
+                    <strong>{t.doi}:</strong> {article.doi}
                   </p>
                 )}
 
                 <div className="mt-4 grid grid-cols-1 gap-2 rounded-xl bg-gray-50 p-4 text-sm text-gray-700 md:grid-cols-2">
                   <p>
-                    <strong>Quartile:</strong>{" "}
+                    <strong>{t.quartile}:</strong>{" "}
                     <span className="font-bold text-blue-700">
                       {article.quartile || "Not found"}
                     </span>
                   </p>
 
                   <p>
-                    <strong>Indexing Status:</strong>{" "}
+                    <strong>{t.indexingStatus}:</strong>{" "}
                     <span className="font-bold text-green-700">
                       {article.indexingStatus || "Unknown / check manually"}
                     </span>
@@ -580,13 +790,13 @@ export default function Home() {
 
                   {article.publisher && (
                     <p>
-                      <strong>Publisher:</strong> {article.publisher}
+                      <strong>{t.publisher}:</strong> {article.publisher}
                     </p>
                   )}
 
                   {article.issn && (
                     <p>
-                      <strong>ISSN:</strong> {article.issn}
+                      <strong>{t.issn}:</strong> {article.issn}
                     </p>
                   )}
                 </div>
@@ -597,7 +807,7 @@ export default function Home() {
                     onClick={() => copyCitation(article, index + 1)}
                     className="rounded-xl bg-black px-4 py-2 text-sm font-bold text-white transition active:scale-95 hover:bg-gray-800"
                   >
-                    Copy source
+                    {t.copySource}
                   </button>
 
                   <a
@@ -606,7 +816,7 @@ export default function Home() {
                     rel="noopener noreferrer"
                     className="rounded-xl border border-blue-200 px-4 py-2 text-sm font-bold text-blue-700 transition active:scale-95 hover:bg-blue-50"
                   >
-                    Open in PubMed
+                    {t.openPubMed}
                   </a>
                 </div>
               </article>
@@ -615,18 +825,15 @@ export default function Home() {
         </section>
 
         <section className="mt-8 rounded-2xl border border-gray-200 bg-gray-50 p-5">
-          <h2 className="text-xl font-bold text-gray-900">Support</h2>
+          <h2 className="text-xl font-bold text-gray-900">{t.support}</h2>
 
-          <p className="mt-2 text-sm text-gray-700">
-            If you experience a search, export, citation, or account problem,
-            contact support.
-          </p>
+          <p className="mt-2 text-sm text-gray-700">{t.supportDescription}</p>
 
           <a
             href="mailto:husseinjk40@gmail.com?subject=ResearchRanker Support Request"
             className="mt-4 inline-block rounded-xl bg-black px-5 py-3 text-sm font-bold text-white transition active:scale-95"
           >
-            Contact Support
+            {t.contactSupport}
           </a>
         </section>
       </div>
