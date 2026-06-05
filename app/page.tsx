@@ -762,7 +762,55 @@ function loadHistoryItem(historyItem: SearchHistoryItem) {
   setToYear(historyItem.toYear);
   showToast(isArabic ? "تم تحميل بحث من السجل" : "Search history item loaded");
 }
+async function runHistorySearch(historyItem: SearchHistoryItem) {
+  setQuery(historyItem.query);
+  setFromYear(historyItem.fromYear);
+  setToYear(historyItem.toYear);
 
+  setSearchLoading(true);
+  setSearchMessage("");
+  setArticles([]);
+  setQuartileFilter("All");
+
+  try {
+    const finalQuery = hasArabic(historyItem.query)
+      ? enhanceArabicQuery(historyItem.query)
+      : historyItem.query;
+
+    const params = new URLSearchParams({
+      query: finalQuery,
+      fromYear: historyItem.fromYear,
+      toYear: historyItem.toYear,
+    });
+
+    const response = await fetch(`/api/search?${params.toString()}`);
+
+    if (!response.ok) {
+      throw new Error("Search request failed");
+    }
+
+    const data = await response.json();
+
+    if (!Array.isArray(data)) {
+      throw new Error("Unexpected search response");
+    }
+
+    setArticles(data);
+
+    if (data.length === 0) {
+      setSearchMessage(t.noResults);
+    } else {
+      setSearchMessage(`${data.length} ${t.foundResults}`);
+    }
+
+    showToast(isArabic ? "تم تشغيل البحث من السجل" : "History search started");
+  } catch (error) {
+    console.error("History search failed:", error);
+    setSearchMessage(t.searchFailed);
+  } finally {
+    setSearchLoading(false);
+  }
+}
 function clearSearchHistory() {
   setSearchHistory([]);
   window.localStorage.removeItem(SEARCH_HISTORY_STORAGE_KEY);
@@ -1188,16 +1236,28 @@ addSearchToHistory(cleanQuery);
   {searchHistory.length > 0 && (
     <div className="mt-4 flex flex-wrap gap-2">
       {searchHistory.map((historyItem) => (
-        <button
-          key={historyItem.id}
-          type="button"
-          onClick={() => loadHistoryItem(historyItem)}
-          title={historyItem.searchedAt}
-          className="rounded-full border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-bold text-gray-800 transition active:scale-95 hover:bg-gray-100"
-        >
-          {historyItem.query} ({historyItem.fromYear}-{historyItem.toYear})
-        </button>
-      ))}
+  <div
+    key={historyItem.id}
+    className="flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-2 text-sm"
+  >
+    <button
+      type="button"
+      onClick={() => loadHistoryItem(historyItem)}
+      title={historyItem.searchedAt}
+      className="font-bold text-gray-800 underline"
+    >
+      {historyItem.query} ({historyItem.fromYear}-{historyItem.toYear})
+    </button>
+
+    <button
+      type="button"
+      onClick={() => runHistorySearch(historyItem)}
+      className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700 transition active:scale-95 hover:bg-blue-100"
+    >
+      {isArabic ? "بحث الآن" : "Search now"}
+    </button>
+  </div>
+))}
     </div>
   )}
 
