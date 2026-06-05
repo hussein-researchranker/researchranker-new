@@ -115,7 +115,7 @@ const uiText = {
     newsTitle: "Latest updates before you search",
     newsDescription:
       "Automatically updated news about journals, indexing, publishing ethics, retractions, open access, and research integrity.",
-    openNewsApi: "Open News API",
+    openNewsApi: "View news",
     loadingNews: "Loading live publishing news...",
     noNews: "Live news could not be loaded right now. Please try again later.",
     searchTitle: "Research Search",
@@ -273,6 +273,24 @@ function cleanText(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function normalizeNewsText(value: string) {
+  return (value || "")
+    .replaceAll("â€™", "’")
+    .replaceAll("â€˜", "‘")
+    .replaceAll("â€œ", "“")
+    .replaceAll("â€", "”")
+    .replaceAll("â€“", "–")
+    .replaceAll("â€”", "—")
+    .replaceAll("&amp;", "&")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#039;", "'")
+    .replaceAll("<![CDATA[", "")
+    .replaceAll("]]>", "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function hasArabic(text: string) {
   return /[\u0600-\u06FF]/.test(text);
 }
@@ -357,6 +375,8 @@ const [matchConfidenceFilter, setMatchConfidenceFilter] =
 const [sortOption, setSortOption] = useState<SortOption>("Newest first");
 const [toastMessage, setToastMessage] = useState("");
 const resultsSectionRef = useRef<HTMLDivElement | null>(null);
+const newsSliderRef = useRef<HTMLDivElement | null>(null);
+const journalSliderRef = useRef<HTMLDivElement | null>(null);
 const filteredArticles = useMemo(() => {
   let result = [...articles];
 
@@ -382,11 +402,12 @@ if (journalFilter.trim()) {
   result = result.filter((article) =>
     article.journal.toLowerCase().includes(normalizedJournalFilter)
   );
-  if (matchConfidenceFilter !== "All") {
+}
+
+if (matchConfidenceFilter !== "All") {
   result = result.filter(
     (article) => article.matchConfidence === matchConfidenceFilter
   );
-}
 }
   const getQuartileRank = (quartile: string) => {
     if (quartile === "Q1") return 1;
@@ -617,6 +638,22 @@ useEffect(() => {
       setToastMessage("");
     }, 2200);
   }
+
+function scrollSlider(
+  ref: { current: HTMLDivElement | null },
+  direction: "left" | "right"
+) {
+  const element = ref.current;
+
+  if (!element) {
+    return;
+  }
+
+  element.scrollBy({
+    left: direction === "right" ? 360 : -360,
+    behavior: "smooth",
+  });
+}
 function resetFilters() {
   setQuartileFilter("All");
   setDoiFilter("All");
@@ -1123,7 +1160,7 @@ addSearchToHistory(cleanQuery);
         </header>
 
         <section className="mt-8 rounded-2xl border border-blue-100 bg-blue-50 p-5">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-sm font-bold uppercase tracking-wide text-blue-700">
                 {t.newsLabel}
@@ -1136,18 +1173,29 @@ addSearchToHistory(cleanQuery);
               <p className="mt-2 text-sm text-gray-600">{t.newsDescription}</p>
             </div>
 
-            <a
-              href="/api/news"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-xl bg-black px-5 py-3 text-sm font-bold text-white transition active:scale-95"
-            >
-              {t.openNewsApi}
-            </a>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => scrollSlider(newsSliderRef, "left")}
+                className="rounded-full border border-blue-200 bg-white px-4 py-2 text-lg font-bold text-blue-800 shadow-sm transition active:scale-95 hover:bg-blue-100"
+                aria-label={isArabic ? "الخبر السابق" : "Previous news"}
+              >
+                {isArabic ? "→" : "←"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => scrollSlider(newsSliderRef, "right")}
+                className="rounded-full border border-blue-200 bg-white px-4 py-2 text-lg font-bold text-blue-800 shadow-sm transition active:scale-95 hover:bg-blue-100"
+                aria-label={isArabic ? "الخبر التالي" : "Next news"}
+              >
+                {isArabic ? "←" : "→"}
+              </button>
+            </div>
           </div>
 
           {newsLoading && (
-            <p className="mt-5 text-sm font-semibold text-gray-600">
+            <p className="mt-5 rounded-xl bg-white p-4 text-sm font-semibold text-gray-600">
               {t.loadingNews}
             </p>
           )}
@@ -1159,29 +1207,42 @@ addSearchToHistory(cleanQuery);
           )}
 
           {!newsLoading && newsItems.length > 0 && (
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-              {newsItems.slice(0, 6).map((item) => (
-                <a
-                  key={`${item.source}-${item.link}`}
-                  href={item.link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-xl border border-blue-100 bg-white p-4 transition active:scale-[0.99] hover:bg-blue-50"
-                >
-                  <div className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                    {item.source}
-                    {item.date ? ` · ${item.date}` : ""}
-                  </div>
+            <div className="relative mt-5">
+              <div
+                ref={newsSliderRef}
+                className="flex snap-x snap-mandatory gap-4 overflow-x-hidden scroll-smooth pb-2"
+              >
+                {newsItems.slice(0, 12).map((item) => (
+                  <article
+                    key={`${item.source}-${item.link}`}
+                    className="min-w-[320px] max-w-[320px] snap-start rounded-2xl border border-blue-100 bg-white p-5 shadow-sm transition active:scale-[0.99] md:min-w-[380px] md:max-w-[380px]"
+                  >
+                    <div className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                      {normalizeNewsText(item.source)}
+                      {item.date ? ` · ${item.date}` : ""}
+                    </div>
 
-                  <h3 className="mt-2 text-base font-bold text-gray-900">
-                    {item.title}
-                  </h3>
+                    <h3 className="mt-3 line-clamp-3 text-lg font-bold text-gray-900">
+                      {normalizeNewsText(item.title)}
+                    </h3>
 
-                  {item.summary && (
-                    <p className="mt-2 text-sm text-gray-600">{item.summary}</p>
-                  )}
-                </a>
-              ))}
+                    {item.summary && (
+                      <p className="mt-3 line-clamp-4 text-sm leading-6 text-gray-600">
+                        {normalizeNewsText(item.summary)}
+                      </p>
+                    )}
+
+                    <a
+                      href={item.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-5 inline-block rounded-xl bg-black px-4 py-2 text-sm font-bold text-white transition active:scale-95 hover:bg-gray-800"
+                    >
+                      {isArabic ? "قراءة الخبر" : "Read source"}
+                    </a>
+                  </article>
+                ))}
+              </div>
             </div>
           )}
         </section>
@@ -1211,7 +1272,7 @@ addSearchToHistory(cleanQuery);
   placeholder={t.searchPlaceholder}
   className="rounded-xl border border-gray-300 p-3 md:col-span-3"
 />
-            /
+            
 
             <input
               type="number"
@@ -1363,100 +1424,98 @@ addSearchToHistory(cleanQuery);
           )}
 {journalCarouselItems.length > 0 && (
   <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4">
-    <style>
-      {`
-        @keyframes journalCarouselScroll {
-          0% {
-            transform: translateX(0);
-          }
-          100% {
-            transform: translateX(-50%);
-          }
-        }
-
-        .journal-carousel-track {
-          animation: journalCarouselScroll 35s linear infinite;
-        }
-
-        .journal-carousel-track:hover {
-          animation-play-state: paused;
-        }
-      `}
-    </style>
-
-    <div className="flex items-center justify-between gap-3">
+    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div>
         <h3 className="text-xl font-bold text-gray-900">
-          {isArabic ? "سلايدر المجلات العلمية" : "Journal Classification Carousel"}
+          {isArabic ? "سلايدر المجلات العلمية" : "Journal Classification Slider"}
         </h3>
 
         <p className="mt-1 text-sm text-gray-600">
           {isArabic
-            ? "استعراض تفاعلي للمجلات الموجودة في نتائج البحث مع الربع وحالة الفهرسة."
-            : "Interactive overview of journals found in the current search results with quartile and indexing status."}
+            ? "استعراض ثابت للمجلات الموجودة في نتائج البحث، ويمكن تحريكه يدوياً بالأسهم."
+            : "Manual slider of journals found in the current search results with quartile and indexing status."}
         </p>
       </div>
 
-      <span className="rounded-full bg-gray-100 px-3 py-1 text-sm font-bold text-gray-700">
-        {journalCarouselItems.length} {isArabic ? "مجلة" : "journals"}
-      </span>
+      <div className="flex items-center gap-2">
+        <span className="rounded-full bg-gray-100 px-3 py-1 text-sm font-bold text-gray-700">
+          {journalCarouselItems.length} {isArabic ? "مجلة" : "journals"}
+        </span>
+
+        <button
+          type="button"
+          onClick={() => scrollSlider(journalSliderRef, "left")}
+          className="rounded-full border border-gray-300 bg-white px-4 py-2 text-lg font-bold text-gray-800 shadow-sm transition active:scale-95 hover:bg-gray-100"
+          aria-label={isArabic ? "المجلة السابقة" : "Previous journal"}
+        >
+          {isArabic ? "→" : "←"}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => scrollSlider(journalSliderRef, "right")}
+          className="rounded-full border border-gray-300 bg-white px-4 py-2 text-lg font-bold text-gray-800 shadow-sm transition active:scale-95 hover:bg-gray-100"
+          aria-label={isArabic ? "المجلة التالية" : "Next journal"}
+        >
+          {isArabic ? "←" : "→"}
+        </button>
+      </div>
     </div>
 
-    <div className="mt-5 overflow-hidden">
-      <div className="journal-carousel-track flex w-max gap-4">
-        {[...journalCarouselItems, ...journalCarouselItems].map(
-          (journal, index) => (
-            <div
-              key={`${journal.journal}-${index}`}
-              className="w-80 shrink-0 rounded-2xl border border-gray-200 bg-gray-50 p-4 shadow-sm"
+    <div
+      ref={journalSliderRef}
+      className="mt-5 flex snap-x snap-mandatory gap-4 overflow-x-hidden scroll-smooth pb-2"
+    >
+      {journalCarouselItems.map((journal, index) => (
+        <div
+          key={`${journal.journal}-${index}`}
+          className="min-w-[320px] max-w-[320px] snap-start rounded-2xl border border-gray-200 bg-gray-50 p-4 shadow-sm md:min-w-[360px] md:max-w-[360px]"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <h4 className="line-clamp-2 text-base font-bold text-gray-900">
+              {journal.journal}
+            </h4>
+
+            <span
+              className={`shrink-0 rounded-full border px-3 py-1 text-sm font-bold ${getQuartileBadgeClass(
+                journal.quartile
+              )}`}
             >
-              <div className="flex items-start justify-between gap-3">
-                <h4 className="line-clamp-2 text-base font-bold text-gray-900">
-                  {journal.journal}
-                </h4>
+              {journal.quartile}
+            </span>
+          </div>
 
-                <span
-                  className={`shrink-0 rounded-full border px-3 py-1 text-sm font-bold ${getQuartileBadgeClass(
-                    journal.quartile
-                  )}`}
-                >
-                  {journal.quartile}
-                </span>
-              </div>
+          <p className="mt-3 text-sm font-semibold text-green-700">
+            {journal.indexingStatus}
+          </p>
 
-              <p className="mt-3 text-sm font-semibold text-green-700">
-                {journal.indexingStatus}
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-700">
+            {journal.sjr && (
+              <p>
+                <strong>SJR:</strong> {journal.sjr}
               </p>
+            )}
 
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-700">
-                {journal.sjr && (
-                  <p>
-                    <strong>SJR:</strong> {journal.sjr}
-                  </p>
-                )}
+            {journal.hIndex && (
+              <p>
+                <strong>H-index:</strong> {journal.hIndex}
+              </p>
+            )}
 
-                {journal.hIndex && (
-                  <p>
-                    <strong>H-index:</strong> {journal.hIndex}
-                  </p>
-                )}
+            {journal.publisher && (
+              <p className="col-span-2 line-clamp-1">
+                <strong>{t.publisher}:</strong> {journal.publisher}
+              </p>
+            )}
 
-                {journal.publisher && (
-                  <p className="col-span-2 line-clamp-1">
-                    <strong>{t.publisher}:</strong> {journal.publisher}
-                  </p>
-                )}
-
-                {journal.issn && (
-                  <p className="col-span-2 line-clamp-1">
-                    <strong>{t.issn}:</strong> {journal.issn}
-                  </p>
-                )}
-              </div>
-            </div>
-          )
-        )}
-      </div>
+            {journal.issn && (
+              <p className="col-span-2 line-clamp-1">
+                <strong>{t.issn}:</strong> {journal.issn}
+              </p>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   </section>
 )}
