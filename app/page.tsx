@@ -347,6 +347,91 @@ function makeSafeFileName(value: string) {
     .slice(0, 80);
 }
 
+function escapeExportValue(value: string) {
+  return cleanText(value || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/{/g, "\\{")
+    .replace(/}/g, "\\}");
+}
+
+function getArticleAuthors(article: Article) {
+  const authors = cleanText(article.authors || "");
+
+  if (!authors) {
+    return ["Unknown author"];
+  }
+
+  if (authors.includes(";")) {
+    return authors
+      .split(";")
+      .map((author) => cleanText(author))
+      .filter(Boolean);
+  }
+
+  return authors
+    .split(",")
+    .map((author) => cleanText(author))
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+function makeBibTeXKey(article: Article, index: number) {
+  const firstAuthor =
+    getArticleAuthors(article)[0]
+      ?.split(/\s+/)[0]
+      ?.replace(/[^a-zA-Z0-9]/g, "") || "article";
+  const year = extractYear(article.pubdate);
+  const safeTitleWord =
+    article.title
+      ?.split(/\s+/)
+      .find((word) => word.length > 4)
+      ?.replace(/[^a-zA-Z0-9]/g, "") || "research";
+
+  return `${firstAuthor}${year}${safeTitleWord}${index}`;
+}
+
+function formatBibTeX(article: Article, index: number) {
+  const authors = getArticleAuthors(article).join(" and ");
+  const year = extractYear(article.pubdate);
+  const doi = cleanText(article.doi || "");
+  const url = doi ? doiUrl(doi) : article.sourceUrl;
+
+  return `@article{${makeBibTeXKey(article, index)},
+  title = {${escapeExportValue(article.title || "Untitled")}},
+  author = {${escapeExportValue(authors)}},
+  journal = {${escapeExportValue(article.journal || "Unknown journal")}},
+  year = {${escapeExportValue(year)}},
+  date = {${escapeExportValue(article.pubdate || "")}},
+  doi = {${escapeExportValue(doi)}},
+  url = {${escapeExportValue(url || "")}},
+  note = {Quartile: ${escapeExportValue(article.quartile || "Not found")}; Indexing: ${escapeExportValue(article.indexingStatus || "Unknown")}}
+}`;
+}
+
+function formatRIS(article: Article) {
+  const authors = getArticleAuthors(article);
+  const year = extractYear(article.pubdate);
+  const doi = cleanText(article.doi || "");
+  const url = doi ? doiUrl(doi) : article.sourceUrl;
+
+  const lines = [
+    "TY  - JOUR",
+    ...authors.map((author) => `AU  - ${author}`),
+    `TI  - ${cleanText(article.title || "Untitled")}`,
+    `JO  - ${cleanText(article.journal || "Unknown journal")}`,
+    `PY  - ${year}`,
+    `DA  - ${cleanText(article.pubdate || "")}`,
+    doi ? `DO  - ${doi}` : "",
+    url ? `UR  - ${url}` : "",
+    article.pmid ? `AN  - PMID:${article.pmid}` : "",
+    article.quartile ? `N1  - Quartile: ${article.quartile}` : "",
+    article.indexingStatus ? `N1  - Indexing status: ${article.indexingStatus}` : "",
+    "ER  -",
+  ];
+
+  return lines.filter(Boolean).join("\n");
+}
+
 export default function Home() {
   const { isLoaded, isSignedIn } = useUser();
 
@@ -569,6 +654,31 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
 
   return Array.from(journals.values()).slice(0, 30);
 }, [articles]);
+
+const publicationYearStats = useMemo(() => {
+  const yearCounts = new Map<number, number>();
+
+  filteredArticles.forEach((article) => {
+    const year = Number(extractYear(article.pubdate));
+
+    if (!Number.isFinite(year)) {
+      return;
+    }
+
+    yearCounts.set(year, (yearCounts.get(year) || 0) + 1);
+  });
+
+  const items = Array.from(yearCounts.entries())
+    .sort(([yearA], [yearB]) => yearA - yearB)
+    .map(([year, count]) => ({ year, count }));
+
+  const maxCount = Math.max(...items.map((item) => item.count), 1);
+
+  return {
+    items,
+    maxCount,
+  };
+}, [filteredArticles]);
 useEffect(() => {
   try {
     const saved = window.localStorage.getItem(SAVED_SEARCHES_STORAGE_KEY);
@@ -1088,6 +1198,40 @@ addSearchToHistory(cleanQuery);
     showToast(`${t.wordDownloaded} ${citationStyle}`);
   }
 
+  function downloadTextFile(content: string, fileName: string, mimeType: string) {
+    const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+    saveAs(blob, fileName);
+  }
+
+  function downloadRIS() {
+    if (filteredArticles.length === 0) {
+      showToast(t.noDownloadResults);
+      return;
+    }
+
+    const content = filteredArticles.map((article) => formatRIS(article)).join("\n\n");
+    const fileName = `ResearchRanker-${makeSafeFileName(query || "results")}.ris`;
+
+    downloadTextFile(content, fileName, "application/x-research-info-systems");
+    showToast(isArabic ? "تم تحميل ملف RIS" : "RIS file downloaded");
+  }
+
+  function downloadBibTeX() {
+    if (filteredArticles.length === 0) {
+      showToast(t.noDownloadResults);
+      return;
+    }
+
+    const content = filteredArticles
+      .map((article, index) => formatBibTeX(article, index + 1))
+      .join("\n\n");
+    const fileName = `ResearchRanker-${makeSafeFileName(query || "results")}.bib`;
+
+    downloadTextFile(content, fileName, "application/x-bibtex");
+    showToast(isArabic ? "تم تحميل ملف BibTeX" : "BibTeX file downloaded");
+  }
+
+
   return (
     <main
       dir={isArabic ? "rtl" : "ltr"}
@@ -1298,6 +1442,43 @@ addSearchToHistory(cleanQuery);
             >
               {searchLoading ? t.searching : t.search}
             </button>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">
+                  {isArabic ? "البحث المتقدم Boolean Search" : "Advanced Boolean Search"}
+                </h3>
+
+                <p className="mt-1 text-sm text-gray-600">
+                  {isArabic
+                    ? "يمكنك استخدام AND و OR و NOT وعلامات التنصيص للبحث عن عبارة دقيقة. يتم إرسال الاستعلام كما هو إلى PubMed."
+                    : "Use AND, OR, NOT, and quotation marks for exact phrases. The query is sent directly to PubMed."}
+                </p>
+
+                <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
+                  {[
+                    '"chronic kidney disease" AND inflammation',
+                    'zonulin AND hemodialysis NOT diabetes',
+                    '(oxidative stress OR inflammation) AND renal',
+                  ].map((example) => (
+                    <button
+                      key={example}
+                      type="button"
+                      onClick={() => setQuery(example)}
+                      className="rounded-full border border-indigo-200 bg-white px-3 py-2 text-indigo-800 transition active:scale-95 hover:bg-indigo-100"
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-indigo-700">
+                {isArabic ? "يدعم PubMed syntax" : "PubMed syntax ready"}
+              </span>
+            </div>
           </div>
 <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1634,6 +1815,49 @@ addSearchToHistory(cleanQuery);
     </div>
   </section>
 )}
+{articles.length > 0 && publicationYearStats.items.length > 0 && (
+  <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-5">
+    <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+      <div>
+        <h3 className="text-xl font-bold text-gray-900">
+          {isArabic ? "تحليل النشر عبر السنوات" : "Publication Trend by Year"}
+        </h3>
+
+        <p className="mt-1 text-sm text-gray-600">
+          {isArabic
+            ? "رسم بياني بسيط يوضح توزيع النتائج الحالية حسب سنة النشر."
+            : "A compact visual chart showing how current results are distributed by publication year."}
+        </p>
+      </div>
+
+      <span className="rounded-full bg-gray-100 px-4 py-2 text-sm font-bold text-gray-700">
+        {publicationYearStats.items.length} {isArabic ? "سنة" : "years"}
+      </span>
+    </div>
+
+    <div className="mt-5 space-y-3">
+      {publicationYearStats.items.map((item) => (
+        <div key={item.year} className="grid grid-cols-[70px_1fr_50px] items-center gap-3">
+          <span className="text-sm font-bold text-gray-700">{item.year}</span>
+
+          <div className="h-4 overflow-hidden rounded-full bg-gray-100">
+            <div
+              className="h-full rounded-full bg-blue-700"
+              style={{
+                width: `${Math.max(
+                  6,
+                  Math.round((item.count / publicationYearStats.maxCount) * 100)
+                )}%`,
+              }}
+            />
+          </div>
+
+          <span className="text-sm font-bold text-gray-900">{item.count}</span>
+        </div>
+      ))}
+    </div>
+  </section>
+)}
 {activeFilters.length > 0 && (
   <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50 p-4">
     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1774,23 +1998,44 @@ addSearchToHistory(cleanQuery);
     ))}
   </select>
 </div>
-                <div className="flex items-end">
-                  <div className="flex items-end">
-  <button
-    type="button"
-    onClick={resetFilters}
-    className="w-full rounded-xl border border-gray-300 bg-white px-5 py-3 font-bold text-gray-800 transition active:scale-95 hover:bg-gray-50"
-  >
-    {isArabic ? "إعادة ضبط الفلاتر" : "Reset filters"}
-  </button>
-</div>
-                  <button
-                    type="button"
-                    onClick={downloadWord}
-                    className="w-full rounded-xl bg-blue-700 px-5 py-3 font-bold text-white transition active:scale-95 hover:bg-blue-800"
-                  >
-                    {t.downloadWord}
-                  </button>
+                <div className="md:col-span-2">
+                  <label className="text-sm font-bold text-gray-700">
+                    {isArabic ? "التصدير" : "Export"}
+                  </label>
+
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={resetFilters}
+                      className="rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-bold text-gray-800 transition active:scale-95 hover:bg-gray-50"
+                    >
+                      {isArabic ? "إعادة ضبط" : "Reset"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={downloadWord}
+                      className="rounded-xl bg-blue-700 px-4 py-3 text-sm font-bold text-white transition active:scale-95 hover:bg-blue-800"
+                    >
+                      Word
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={downloadRIS}
+                      className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white transition active:scale-95 hover:bg-emerald-800"
+                    >
+                      RIS
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={downloadBibTeX}
+                      className="rounded-xl bg-purple-700 px-4 py-3 text-sm font-bold text-white transition active:scale-95 hover:bg-purple-800"
+                    >
+                      BibTeX
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
