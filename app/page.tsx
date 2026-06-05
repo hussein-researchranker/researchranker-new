@@ -494,6 +494,22 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
 useEffect(() => {
   try {
     const saved = window.localStorage.getItem(SAVED_SEARCHES_STORAGE_KEY);
+
+    if (!saved) {
+      return;
+    }
+
+    const parsed = JSON.parse(saved);
+
+    if (Array.isArray(parsed)) {
+      setSavedSearches(parsed);
+    }
+  } catch (error) {
+    console.error("Could not load saved searches:", error);
+    setSavedSearches([]);
+  }
+}, []);
+
 useEffect(() => {
   try {
     const saved = window.localStorage.getItem(SEARCH_HISTORY_STORAGE_KEY);
@@ -510,20 +526,6 @@ useEffect(() => {
   } catch (error) {
     console.error("Could not load search history:", error);
     setSearchHistory([]);
-  }
-}, []);
-    if (!saved) {
-      return;
-    }
-
-    const parsed = JSON.parse(saved);
-
-    if (Array.isArray(parsed)) {
-      setSavedSearches(parsed);
-    }
-  } catch (error) {
-    console.error("Could not load saved searches:", error);
-    setSavedSearches([]);
   }
 }, []);
   useEffect(() => {
@@ -636,12 +638,113 @@ function saveCurrentSearch() {
   showToast(isArabic ? "تم حفظ البحث" : "Search saved");
 }
 function loadSavedSearch(savedSearch: SavedSearch) {
+  async function runSavedSearch(savedSearch: SavedSearch) {
+  setQuery(savedSearch.query);
+  setFromYear(savedSearch.fromYear);
+  setToYear(savedSearch.toYear);
+
+  setSearchLoading(true);
+  setSearchMessage("");
+  setArticles([]);
+  setQuartileFilter("All");
+
+  try {
+    const finalQuery = hasArabic(savedSearch.query)
+      ? enhanceArabicQuery(savedSearch.query)
+      : savedSearch.query;
+
+    addSearchToHistory(savedSearch.query);
+
+    const params = new URLSearchParams({
+      query: finalQuery,
+      fromYear: savedSearch.fromYear,
+      toYear: savedSearch.toYear,
+    });
+
+    const response = await fetch(`/api/search?${params.toString()}`);
+
+    if (!response.ok) {
+      throw new Error("Search request failed");
+    }
+
+    const data = await response.json();
+
+    if (!Array.isArray(data)) {
+      throw new Error("Unexpected search response");
+    }
+
+    setArticles(data);
+
+    if (data.length === 0) {
+      setSearchMessage(t.noResults);
+    } else {
+      setSearchMessage(`${data.length} ${t.foundResults}`);
+    }
+
+    showToast(isArabic ? "تم تشغيل البحث المحفوظ" : "Saved search started");
+  } catch (error) {
+    console.error("Saved search failed:", error);
+    setSearchMessage(t.searchFailed);
+  } finally {
+    setSearchLoading(false);
+  }
+}
   setQuery(savedSearch.query);
   setFromYear(savedSearch.fromYear);
   setToYear(savedSearch.toYear);
   showToast(isArabic ? "تم تحميل البحث المحفوظ" : "Saved search loaded");
 }
+async function runSavedSearch(savedSearch: SavedSearch) {
+  setQuery(savedSearch.query);
+  setFromYear(savedSearch.fromYear);
+  setToYear(savedSearch.toYear);
 
+  setSearchLoading(true);
+  setSearchMessage("");
+  setArticles([]);
+  setQuartileFilter("All");
+
+  try {
+    const finalQuery = hasArabic(savedSearch.query)
+      ? enhanceArabicQuery(savedSearch.query)
+      : savedSearch.query;
+
+    addSearchToHistory(savedSearch.query);
+
+    const params = new URLSearchParams({
+      query: finalQuery,
+      fromYear: savedSearch.fromYear,
+      toYear: savedSearch.toYear,
+    });
+
+    const response = await fetch(`/api/search?${params.toString()}`);
+
+    if (!response.ok) {
+      throw new Error("Search request failed");
+    }
+
+    const data = await response.json();
+
+    if (!Array.isArray(data)) {
+      throw new Error("Unexpected search response");
+    }
+
+    setArticles(data);
+
+    if (data.length === 0) {
+      setSearchMessage(t.noResults);
+    } else {
+      setSearchMessage(`${data.length} ${t.foundResults}`);
+    }
+
+    showToast(isArabic ? "تم تشغيل البحث المحفوظ" : "Saved search started");
+  } catch (error) {
+    console.error("Saved search failed:", error);
+    setSearchMessage(t.searchFailed);
+  } finally {
+    setSearchLoading(false);
+  }
+}
 function deleteSavedSearch(id: string) {
   const updatedSavedSearches = savedSearches.filter((item) => item.id !== id);
 
