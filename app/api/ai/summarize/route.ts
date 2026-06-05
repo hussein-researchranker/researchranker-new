@@ -50,7 +50,7 @@ function normalizeSummary(value: Partial<GeminiSummaryResponse>): GeminiSummaryR
       "This article may be useful for understanding the research topic described in the abstract.",
     limitationNote:
       cleanText(value.limitationNote) ||
-      "This AI summary is based only on the available title and abstract.",
+        "This AI summary is based only on the available title and abstract.",
   };
 }
 
