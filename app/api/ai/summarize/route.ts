@@ -1,10 +1,10 @@
 type GeminiSummaryResponse = {
-  objective?: string;
-  methodology?: string;
-  keyFindings?: string[];
-  conclusion?: string;
-  researchValue?: string;
-  limitationNote?: string;
+  objective: string;
+  methodology: string;
+  keyFindings: string[];
+  conclusion: string;
+  researchValue: string;
+  limitationNote: string;
 };
 
 const GEMINI_MODEL = "gemini-2.5-flash-lite";
@@ -26,6 +26,34 @@ function limitText(value: string, maxChars = MAX_ABSTRACT_CHARS) {
   return `${cleanValue.slice(0, maxChars)}...`;
 }
 
+function normalizeSummary(value: Partial<GeminiSummaryResponse>): GeminiSummaryResponse {
+  const keyFindings = Array.isArray(value.keyFindings)
+    ? value.keyFindings.map(cleanText).filter(Boolean).slice(0, 5)
+    : [];
+
+  return {
+    objective:
+      cleanText(value.objective) ||
+      "The objective was inferred from the article abstract.",
+    methodology:
+      cleanText(value.methodology) ||
+      "The methodology was not clearly specified in the abstract.",
+    keyFindings:
+      keyFindings.length > 0
+        ? keyFindings
+        : ["The key findings could not be clearly extracted from the abstract."],
+    conclusion:
+      cleanText(value.conclusion) ||
+      "The conclusion was not clearly specified in the abstract.",
+    researchValue:
+      cleanText(value.researchValue) ||
+      "This article may be useful for understanding the research topic described in the abstract.",
+    limitationNote:
+      cleanText(value.limitationNote) ||
+      "This AI summary is based only on the available title and abstract.",
+  };
+}
+
 function safeParseJson(text: string): GeminiSummaryResponse {
   try {
     const cleaned = text
@@ -33,17 +61,14 @@ function safeParseJson(text: string): GeminiSummaryResponse {
       .replace(/```/g, "")
       .trim();
 
-    return JSON.parse(cleaned) as GeminiSummaryResponse;
+    return normalizeSummary(JSON.parse(cleaned));
   } catch {
-    return {
+    return normalizeSummary({
       objective: "AI summary generated as plain text.",
-      methodology: "",
       keyFindings: [text],
-      conclusion: "",
-      researchValue: "",
       limitationNote:
         "The AI response was not returned as structured JSON. Review manually before academic use.",
-    };
+    });
   }
 }
 
@@ -79,23 +104,23 @@ export async function POST(request: Request) {
     }
 
     const prompt = `
-You are an academic research assistant.
+You are an academic biomedical research assistant.
 
-Summarize the following research article in concise academic English.
-Use only the information provided. Do not invent results.
-Return valid JSON only. Do not use markdown.
+Extract a useful structured academic summary from the article data below.
 
-JSON format:
-{
-  "objective": "one concise sentence",
-  "methodology": "one concise sentence",
-  "keyFindings": ["point 1", "point 2", "point 3"],
-  "conclusion": "one concise sentence",
-  "researchValue": "one concise sentence",
-  "limitationNote": "one concise sentence"
-}
+Rules:
+- Use only the title and abstract provided.
+- Do not invent data, numbers, or outcomes.
+- Do not answer "Not specified" unless absolutely necessary.
+- If the objective is not explicitly stated, infer it from the first sentences.
+- If methodology is not explicitly stated, infer the article type from wording such as review, observational, experimental, comparative, mechanistic, or clinical.
+- Key findings must contain 3 meaningful points when possible.
+- Conclusion must summarize the main implication.
+- Research value must explain why this paper is useful for researchers.
+- Limitation note must mention that the summary is based only on the available abstract when appropriate.
+- Return JSON only.
 
-Article data:
+Article:
 Title: ${title}
 Journal: ${journal}
 Authors: ${authors}
@@ -121,9 +146,31 @@ Abstract: ${abstract}
             },
           ],
           generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 700,
+            temperature: 0.1,
+            maxOutputTokens: 900,
             responseMimeType: "application/json",
+            responseSchema: {
+              type: "object",
+              properties: {
+                objective: { type: "string" },
+                methodology: { type: "string" },
+                keyFindings: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+                conclusion: { type: "string" },
+                researchValue: { type: "string" },
+                limitationNote: { type: "string" },
+              },
+              required: [
+                "objective",
+                "methodology",
+                "keyFindings",
+                "conclusion",
+                "researchValue",
+                "limitationNote",
+              ],
+            },
           },
         }),
       }
@@ -167,9 +214,7 @@ Abstract: ${abstract}
       );
     }
 
-    const text =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "";
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
     if (!text) {
       return Response.json(
@@ -182,9 +227,7 @@ Abstract: ${abstract}
 
     const summary = safeParseJson(text);
 
-    return Response.json({
-      summary,
-    });
+    return Response.json(summary);
   } catch (error) {
     console.error("AI summarize route error:", error);
 
