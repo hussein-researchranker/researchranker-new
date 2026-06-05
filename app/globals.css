@@ -24,3 +24,60 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+/* ResearchRanker global click feedback */
+button,
+select,
+a.rounded-xl,
+a.rounded-full {
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease,
+    opacity 120ms ease;
+}
+
+button:hover:not(:disabled),
+select:hover:not(:disabled),
+a.rounded-xl:hover,
+a.rounded-full:hover {
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+button:active:not(:disabled),
+select:active:not(:disabled),
+a.rounded-xl:active,
+a.rounded-full:active {
+  transform: translateY(1px) scale(0.96);
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.12);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+button:focus-visible,
+select:focus-visible,
+a.rounded-xl:focus-visible,
+a.rounded-full:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.35);
+  outline-offset: 2px;
+}
+
+/* Reduce animation for users who prefer less motion */
+@media (prefers-reduced-motion: reduce) {
+  button,
+  select,
+  a.rounded-xl,
+  a.rounded-full {
+    transition: none;
+  }
+
+  button:active:not(:disabled),
+  select:active:not(:disabled),
+  a.rounded-xl:active,
+  a.rounded-full:active {
+    transform: none;
+  }
+}

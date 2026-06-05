@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SignInButton, UserButton, useUser } from "@clerk/nextjs";
 import { Document, Packer, Paragraph, TextRun } from "docx";
 import { saveAs } from "file-saver";
@@ -356,6 +356,7 @@ const [matchConfidenceFilter, setMatchConfidenceFilter] =
   useState<MatchConfidenceFilter>("All");
 const [sortOption, setSortOption] = useState<SortOption>("Newest first");
 const [toastMessage, setToastMessage] = useState("");
+const resultsSectionRef = useRef<HTMLDivElement | null>(null);
 const filteredArticles = useMemo(() => {
   let result = [...articles];
 
@@ -567,6 +568,16 @@ function resetFilters() {
   setMatchConfidenceFilter("All");
   setSortOption("Newest first");
   showToast(isArabic ? "تمت إعادة ضبط الفلاتر" : "Filters reset");
+}
+function jumpToResultsWithQuartile(filter: QuartileFilter) {
+  setQuartileFilter(filter);
+
+  window.setTimeout(() => {
+    resultsSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, 100);
 }
 function addSearchToHistory(searchQuery: string) {
   const cleanSearchQuery = searchQuery.trim();
@@ -1402,42 +1413,62 @@ addSearchToHistory(cleanQuery);
         </p>
       </div>
 
-      <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
-        <p className="text-sm font-bold text-green-700">Q1</p>
-        <p className="mt-2 text-3xl font-bold text-green-800">
-          {qualityDashboardStats.q1}
-        </p>
-      </div>
+     <button
+  type="button"
+  onClick={() => jumpToResultsWithQuartile("Q1")}
+  className="clickable-card rounded-2xl border border-green-200 bg-green-50 p-4 text-left"
+>
+  <p className="text-sm font-bold text-green-700">Q1</p>
+  <p className="mt-2 text-3xl font-bold text-green-800">
+    {qualityDashboardStats.q1}
+  </p>
+</button>
 
-      <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-        <p className="text-sm font-bold text-blue-700">Q2</p>
-        <p className="mt-2 text-3xl font-bold text-blue-800">
-          {qualityDashboardStats.q2}
-        </p>
-      </div>
+<button
+  type="button"
+  onClick={() => jumpToResultsWithQuartile("Q2")}
+  className="clickable-card rounded-2xl border border-blue-200 bg-blue-50 p-4 text-left"
+>
+  <p className="text-sm font-bold text-blue-700">Q2</p>
+  <p className="mt-2 text-3xl font-bold text-blue-800">
+    {qualityDashboardStats.q2}
+  </p>
+</button>
 
-      <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-4">
-        <p className="text-sm font-bold text-yellow-700">Q3</p>
-        <p className="mt-2 text-3xl font-bold text-yellow-800">
-          {qualityDashboardStats.q3}
-        </p>
-      </div>
+<button
+  type="button"
+  onClick={() => jumpToResultsWithQuartile("Q3")}
+  className="clickable-card rounded-2xl border border-yellow-200 bg-yellow-50 p-4 text-left"
+>
+  <p className="text-sm font-bold text-yellow-700">Q3</p>
+  <p className="mt-2 text-3xl font-bold text-yellow-800">
+    {qualityDashboardStats.q3}
+  </p>
+</button>
 
-      <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
-        <p className="text-sm font-bold text-red-700">Q4</p>
-        <p className="mt-2 text-3xl font-bold text-red-800">
-          {qualityDashboardStats.q4}
-        </p>
-      </div>
+<button
+  type="button"
+  onClick={() => jumpToResultsWithQuartile("Q4")}
+  className="clickable-card rounded-2xl border border-red-200 bg-red-50 p-4 text-left"
+>
+  <p className="text-sm font-bold text-red-700">Q4</p>
+  <p className="mt-2 text-3xl font-bold text-red-800">
+    {qualityDashboardStats.q4}
+  </p>
+</button>
 
-      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-        <p className="text-sm font-bold text-gray-500">
-          {isArabic ? "غير موجود في SCImago" : "Not found"}
-        </p>
-        <p className="mt-2 text-3xl font-bold text-gray-900">
-          {qualityDashboardStats.notFound}
-        </p>
-      </div>
+<button
+  type="button"
+  onClick={() => jumpToResultsWithQuartile("Not found")}
+  className="clickable-card rounded-2xl border border-gray-200 bg-gray-50 p-4 text-left"
+>
+  <p className="text-sm font-bold text-gray-500">
+    {isArabic ? "غير موجود في SCImago" : "Not found"}
+  </p>
+  <p className="mt-2 text-3xl font-bold text-gray-900">
+    {qualityDashboardStats.notFound}
+  </p>
+</button>
 
       <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
         <p className="text-sm font-bold text-purple-700">
@@ -1583,7 +1614,7 @@ addSearchToHistory(cleanQuery);
             </div>
           )}
 
-          <div className="mt-6 space-y-4">
+<div ref={resultsSectionRef} className="mt-6 space-y-4">
             {filteredArticles.map((article, index) => (
               <article
                 key={article.pmid}
