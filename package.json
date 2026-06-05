@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^7.4.3",
+    "@upstash/redis": "^1.38.0",
     "docx": "^9.7.1",
     "file-saver": "^2.0.5",
     "next": "16.2.7",
