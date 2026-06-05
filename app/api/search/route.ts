@@ -22,6 +22,7 @@ type PubMedArticle = {
   publisher: string;
   issn: string;
   matchConfidence: MatchConfidence;
+  abstract: string;
 };
 
 type ScimagoJournal = {
@@ -270,6 +271,60 @@ function getAuthors(article: unknown) {
     .join(", ");
 }
 
+function decodeXml(value: string) {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function stripXmlTags(value: string) {
+  return decodeXml(value.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
+async function fetchPubMedAbstracts(ids: string[]) {
+  const abstractByPmid: Record<string, string> = {};
+
+  if (ids.length === 0) {
+    return abstractByPmid;
+  }
+
+  const fetchUrl = new URL(`${PUBMED_BASE_URL}/efetch.fcgi`);
+  fetchUrl.searchParams.set("db", "pubmed");
+  fetchUrl.searchParams.set("id", ids.join(","));
+  fetchUrl.searchParams.set("retmode", "xml");
+
+  const fetchResponse = await fetch(fetchUrl.toString(), {
+    next: { revalidate: 60 * 60 },
+  });
+
+  if (!fetchResponse.ok) {
+    return abstractByPmid;
+  }
+
+  const xml = await fetchResponse.text();
+  const articleBlocks = xml.match(/<PubmedArticle>[\s\S]*?<\/PubmedArticle>/g) || [];
+
+  articleBlocks.forEach((block) => {
+    const pmidMatch = block.match(/<PMID[^>]*>([\s\S]*?)<\/PMID>/);
+    const pmid = cleanText(stripXmlTags(pmidMatch?.[1] || ""));
+
+    if (!pmid) {
+      return;
+    }
+
+    const abstractParts = Array.from(
+      block.matchAll(/<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/g)
+    ).map((match) => stripXmlTags(match[1]));
+
+    abstractByPmid[pmid] = cleanText(abstractParts.filter(Boolean).join(" "));
+  });
+
+  return abstractByPmid;
+}
+
 function buildPubMedQuery(query: string, fromYear: string, toYear: string) {
   const cleanQuery = cleanText(query);
   const startYear = /^\d{4}$/.test(fromYear) ? fromYear : "2020";
@@ -343,6 +398,7 @@ export async function GET(request: Request) {
 
     const summaryData = await summaryResponse.json();
     const result = summaryData?.result || {};
+    const abstractByPmid = await fetchPubMedAbstracts(ids);
 
     const articles: PubMedArticle[] = ids
       .map((id) => result[id])
@@ -373,6 +429,7 @@ return {
   doi: getDoi(article),
   source: "PubMed",
   sourceUrl: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
+  abstract: abstractByPmid[pmid] || "",
   quartile: scimagoMatch?.quartile || "Not found",
   indexingStatus: buildIndexingStatus(scimagoMatch, "PubMed"),
   sjr: scimagoMatch?.sjr || "",

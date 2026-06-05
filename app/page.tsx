@@ -29,6 +29,15 @@ type Article = {
   publisher: string;
   issn: string;
   matchConfidence: string;
+  abstract?: string;
+};
+type AiSummary = {
+  objective: string;
+  methodology: string;
+  keyFindings: string[];
+  conclusion: string;
+  researchValue: string;
+  limitation: string;
 };
 type JournalCarouselItem = {
   journal: string;
@@ -459,6 +468,9 @@ const [matchConfidenceFilter, setMatchConfidenceFilter] =
   useState<MatchConfidenceFilter>("All");
 const [sortOption, setSortOption] = useState<SortOption>("Newest first");
 const [toastMessage, setToastMessage] = useState("");
+const [aiSummaries, setAiSummaries] = useState<Record<string, AiSummary>>({});
+const [aiSummaryLoading, setAiSummaryLoading] = useState<Record<string, boolean>>({});
+const [aiSummaryError, setAiSummaryError] = useState<Record<string, string>>({});
 const resultsSectionRef = useRef<HTMLDivElement | null>(null);
 const newsSliderRef = useRef<HTMLDivElement | null>(null);
 const journalSliderRef = useRef<HTMLDivElement | null>(null);
@@ -1050,6 +1062,62 @@ function clearSearchHistory() {
   setSearchHistory([]);
   window.localStorage.removeItem(SEARCH_HISTORY_STORAGE_KEY);
   showToast(isArabic ? "تم حذف سجل البحث" : "Search history cleared");
+}
+
+async function summarizeArticle(article: Article) {
+  if (aiSummaries[article.pmid]) {
+    return;
+  }
+
+  setAiSummaryLoading((current) => ({ ...current, [article.pmid]: true }));
+  setAiSummaryError((current) => ({ ...current, [article.pmid]: "" }));
+
+  try {
+    const response = await fetch("/api/ai/summarize", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        title: article.title,
+        journal: article.journal,
+        pubdate: article.pubdate,
+        authors: article.authors,
+        doi: article.doi,
+        abstract: article.abstract || "",
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data?.error || "AI summary request failed.");
+    }
+
+    setAiSummaries((current) => ({
+      ...current,
+      [article.pmid]: {
+        objective: data.objective || "Not specified",
+        methodology: data.methodology || "Not specified",
+        keyFindings: Array.isArray(data.keyFindings)
+          ? data.keyFindings
+          : ["Not specified"],
+        conclusion: data.conclusion || "Not specified",
+        researchValue: data.researchValue || "Not specified",
+        limitation: data.limitation || "Not specified",
+      },
+    }));
+  } catch (error) {
+    console.error("AI summary failed:", error);
+    setAiSummaryError((current) => ({
+      ...current,
+      [article.pmid]: isArabic
+        ? "تعذر إنشاء الملخص الذكي حالياً. تحقق من مفتاح Gemini أو حاول لاحقاً."
+        : "AI summary could not be generated now. Check the Gemini key or try again later.",
+    }));
+  } finally {
+    setAiSummaryLoading((current) => ({ ...current, [article.pmid]: false }));
+  }
 }
 
   async function handleSearch() {
@@ -2086,6 +2154,12 @@ addSearchToHistory(cleanQuery);
                     <strong>{t.doi}:</strong> {article.doi}
                   </p>
                 )}
+{article.abstract && (
+  <p className="mt-3 rounded-xl bg-slate-50 p-3 text-sm leading-6 text-gray-700">
+    <strong>{isArabic ? "المستخلص:" : "Abstract:"}</strong>{" "}
+    {article.abstract}
+  </p>
+)}
 {article.matchConfidence && (
   <div className="mt-3">
     <span
@@ -2147,6 +2221,21 @@ addSearchToHistory(cleanQuery);
                     {t.copySource}
                   </button>
 
+                  <button
+                    type="button"
+                    onClick={() => summarizeArticle(article)}
+                    disabled={Boolean(aiSummaryLoading[article.pmid])}
+                    className="rounded-xl bg-indigo-700 px-4 py-2 text-sm font-bold text-white transition active:scale-95 hover:bg-indigo-800 disabled:bg-indigo-300"
+                  >
+                    {aiSummaryLoading[article.pmid]
+                      ? isArabic
+                        ? "جاري التلخيص..."
+                        : "Summarizing..."
+                      : isArabic
+                        ? "تلخيص ذكي"
+                        : "AI Summary"}
+                  </button>
+
                   <a
                     href={article.sourceUrl}
                     target="_blank"
@@ -2156,6 +2245,61 @@ addSearchToHistory(cleanQuery);
                     {t.openPubMed}
                   </a>
                 </div>
+
+                {aiSummaryError[article.pmid] && (
+                  <div className="mt-4 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-800">
+                    {aiSummaryError[article.pmid]}
+                  </div>
+                )}
+
+                {aiSummaries[article.pmid] && (
+                  <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+                    <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                      <h4 className="text-base font-bold text-gray-900">
+                        {isArabic ? "الملخص الذكي" : "AI Research Summary"}
+                      </h4>
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-indigo-700">
+                        {isArabic ? "Gemini API" : "Gemini API"}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-3 text-sm text-gray-700 md:grid-cols-2">
+                      <div className="rounded-xl bg-white p-3">
+                        <strong>{isArabic ? "الهدف:" : "Objective:"}</strong>
+                        <p className="mt-1 leading-6">{aiSummaries[article.pmid].objective}</p>
+                      </div>
+
+                      <div className="rounded-xl bg-white p-3">
+                        <strong>{isArabic ? "المنهجية:" : "Methodology:"}</strong>
+                        <p className="mt-1 leading-6">{aiSummaries[article.pmid].methodology}</p>
+                      </div>
+
+                      <div className="rounded-xl bg-white p-3 md:col-span-2">
+                        <strong>{isArabic ? "أهم النتائج:" : "Key findings:"}</strong>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                          {aiSummaries[article.pmid].keyFindings.map((finding, findingIndex) => (
+                            <li key={`${article.pmid}-finding-${findingIndex}`}>{finding}</li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div className="rounded-xl bg-white p-3">
+                        <strong>{isArabic ? "الخلاصة:" : "Conclusion:"}</strong>
+                        <p className="mt-1 leading-6">{aiSummaries[article.pmid].conclusion}</p>
+                      </div>
+
+                      <div className="rounded-xl bg-white p-3">
+                        <strong>{isArabic ? "القيمة البحثية:" : "Research value:"}</strong>
+                        <p className="mt-1 leading-6">{aiSummaries[article.pmid].researchValue}</p>
+                      </div>
+
+                      <div className="rounded-xl bg-white p-3 md:col-span-2">
+                        <strong>{isArabic ? "ملاحظة/حدود:" : "Limitation note:"}</strong>
+                        <p className="mt-1 leading-6">{aiSummaries[article.pmid].limitation}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </article>
             ))}
           </div>
