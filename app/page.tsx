@@ -579,6 +579,27 @@ function jumpToResultsWithQuartile(filter: QuartileFilter) {
     });
   }, 100);
 }
+function jumpToResultsWithDoi() {
+  setDoiFilter("Has DOI");
+
+  window.setTimeout(() => {
+    resultsSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, 100);
+}
+
+function jumpToResultsWithScimagoIndexed() {
+  setSortOption("SCImago indexed first");
+
+  window.setTimeout(() => {
+    resultsSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, 100);
+}
 function addSearchToHistory(searchQuery: string) {
   const cleanSearchQuery = searchQuery.trim();
 
@@ -1470,23 +1491,31 @@ addSearchToHistory(cleanQuery);
   </p>
 </button>
 
-      <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
-        <p className="text-sm font-bold text-purple-700">
-          {isArabic ? "تحتوي DOI" : "With DOI"}
-        </p>
-        <p className="mt-2 text-3xl font-bold text-purple-800">
-          {qualityDashboardStats.withDoi}
-        </p>
-      </div>
+      <button
+  type="button"
+  onClick={jumpToResultsWithDoi}
+  className="clickable-card rounded-2xl border border-purple-200 bg-purple-50 p-4 text-left"
+>
+  <p className="text-sm font-bold text-purple-700">
+    {isArabic ? "تحتوي DOI" : "With DOI"}
+  </p>
+  <p className="mt-2 text-3xl font-bold text-purple-800">
+    {qualityDashboardStats.withDoi}
+  </p>
+</button>
 
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-        <p className="text-sm font-bold text-emerald-700">
-          {isArabic ? "مفهرسة في SCImago" : "SCImago indexed"}
-        </p>
-        <p className="mt-2 text-3xl font-bold text-emerald-800">
-          {qualityDashboardStats.scimagoIndexed}
-        </p>
-      </div>
+      <button
+  type="button"
+  onClick={jumpToResultsWithScimagoIndexed}
+  className="clickable-card rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-left"
+>
+  <p className="text-sm font-bold text-emerald-700">
+    {isArabic ? "مفهرسة في SCImago" : "SCImago indexed"}
+  </p>
+  <p className="mt-2 text-3xl font-bold text-emerald-800">
+    {qualityDashboardStats.scimagoIndexed}
+  </p>
+</button>
     </div>
   </section>
 )}
