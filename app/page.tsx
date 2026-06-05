@@ -454,6 +454,7 @@ export default function Home() {
 const [query, setQuery] = useState("");
 const [fromYear, setFromYear] = useState("1990");
 const [toYear, setToYear] = useState("2026");
+const [maxResults, setMaxResults] = useState("50");
 const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
 const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>([]);
 const [articles, setArticles] = useState<Article[]>([]);
@@ -906,6 +907,7 @@ function loadSavedSearch(savedSearch: SavedSearch) {
       query: finalQuery,
       fromYear: savedSearch.fromYear,
       toYear: savedSearch.toYear,
+      maxResults,
     });
 
     const response = await fetch(`/api/search?${params.toString()}`);
@@ -962,6 +964,7 @@ async function runSavedSearch(savedSearch: SavedSearch) {
       query: finalQuery,
       fromYear: savedSearch.fromYear,
       toYear: savedSearch.toYear,
+      maxResults,
     });
 
     const response = await fetch(`/api/search?${params.toString()}`);
@@ -1028,6 +1031,7 @@ async function runHistorySearch(historyItem: SearchHistoryItem) {
       query: finalQuery,
       fromYear: historyItem.fromYear,
       toYear: historyItem.toYear,
+      maxResults,
     });
 
     const response = await fetch(`/api/search?${params.toString()}`);
@@ -1142,6 +1146,8 @@ addSearchToHistory(cleanQuery);
         query: finalQuery,
         fromYear,
         toYear,
+        maxResults,
+
       });
 
       const response = await fetch(`/api/search?${params.toString()}`);
@@ -1470,7 +1476,7 @@ addSearchToHistory(cleanQuery);
             </p>
           )}
 
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-6">
+          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-7">
            <input
   type="text"
   value={query}
@@ -1501,7 +1507,18 @@ addSearchToHistory(cleanQuery);
               className="rounded-xl border border-gray-300 p-3"
               placeholder={t.toYear}
             />
-
+<select
+  value={maxResults}
+  onChange={(event) => setMaxResults(event.target.value)}
+  className="rounded-xl border border-gray-300 bg-white p-3"
+  aria-label={isArabic ? "عدد النتائج" : "Number of results"}
+>
+  <option value="20">20 results</option>
+  <option value="50">50 results</option>
+  <option value="100">100 results</option>
+  <option value="200">200 results</option>
+  <option value="500">500 results</option>
+</select>
             <button
               type="button"
               onClick={handleSearch}

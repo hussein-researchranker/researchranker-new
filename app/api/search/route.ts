@@ -36,7 +36,7 @@ type ScimagoJournal = {
 };
 
 const PUBMED_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
-const DEFAULT_MAX_RESULTS = 20;
+const DEFAULT_MAX_RESULTS = 50;
 
 let scimagoCache: ScimagoJournal[] | null = null;
 
@@ -364,7 +364,7 @@ export async function GET(request: Request) {
     searchUrl.searchParams.set("retmode", "json");
     searchUrl.searchParams.set(
       "retmax",
-      String(Math.min(Math.max(maxResults, 1), 50))
+      String(Math.min(Math.max(maxResults, 1), 500))
     );
     searchUrl.searchParams.set("sort", "pub date");
 
