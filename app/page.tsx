@@ -431,7 +431,63 @@ if (journalFilter.trim()) {
   journalFilter,
   matchConfidenceFilter,
   sortOption,
-]);  const qualityDashboardStats = useMemo<QualityDashboardStats>(() => {
+]);
+const activeFilters = useMemo(() => {
+  const filters: {
+    key: string;
+    label: string;
+    clear: () => void;
+  }[] = [];
+
+  if (quartileFilter !== "All") {
+    filters.push({
+      key: "quartile",
+      label: `Quartile: ${quartileFilter}`,
+      clear: () => setQuartileFilter("All"),
+    });
+  }
+
+  if (doiFilter !== "All") {
+    filters.push({
+      key: "doi",
+      label: `DOI: ${doiFilter}`,
+      clear: () => setDoiFilter("All"),
+    });
+  }
+
+  if (journalFilter.trim()) {
+    filters.push({
+      key: "journal",
+      label: `Journal: ${journalFilter.trim()}`,
+      clear: () => setJournalFilter(""),
+    });
+  }
+
+  if (matchConfidenceFilter !== "All") {
+    filters.push({
+      key: "matchConfidence",
+      label: `Match: ${matchConfidenceFilter}`,
+      clear: () => setMatchConfidenceFilter("All"),
+    });
+  }
+
+  if (sortOption !== "Newest first") {
+    filters.push({
+      key: "sort",
+      label: `Sort: ${sortOption}`,
+      clear: () => setSortOption("Newest first"),
+    });
+  }
+
+  return filters;
+}, [
+  quartileFilter,
+  doiFilter,
+  journalFilter,
+  matchConfidenceFilter,
+  sortOption,
+]);
+const qualityDashboardStats = useMemo<QualityDashboardStats>(() => {
   return articles.reduce(
     (stats, article) => {
       const quartile = article.quartile || "Not found";
@@ -1518,6 +1574,44 @@ addSearchToHistory(cleanQuery);
 </button>
     </div>
   </section>
+)}
+{activeFilters.length > 0 && (
+  <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div>
+        <h3 className="text-lg font-bold text-gray-900">
+          {isArabic ? "الفلاتر المفعّلة" : "Active filters"}
+        </h3>
+
+        <p className="mt-1 text-sm text-gray-600">
+          {isArabic
+            ? "هذه الفلاتر مطبقة حالياً على النتائج."
+            : "These filters are currently applied to the results."}
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={resetFilters}
+        className="rounded-xl bg-black px-4 py-2 text-sm font-bold text-white transition active:scale-95 hover:bg-gray-800"
+      >
+        {isArabic ? "إزالة كل الفلاتر" : "Clear all filters"}
+      </button>
+    </div>
+
+    <div className="mt-4 flex flex-wrap gap-2">
+      {activeFilters.map((filter) => (
+        <button
+          key={filter.key}
+          type="button"
+          onClick={filter.clear}
+          className="rounded-full border border-blue-200 bg-white px-3 py-2 text-sm font-bold text-blue-800 transition active:scale-95 hover:bg-blue-100"
+        >
+          {filter.label} ×
+        </button>
+      ))}
+    </div>
+  </div>
 )}
           {articles.length > 0 && (
             <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-4">
