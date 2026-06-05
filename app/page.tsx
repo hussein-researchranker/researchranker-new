@@ -70,7 +70,15 @@ type SavedSearch = {
   toYear: string;
   createdAt: string;
 };
+type SearchHistoryItem = {
+  id: string;
+  query: string;
+  fromYear: string;
+  toYear: string;
+  searchedAt: string;
+};
 const SAVED_SEARCHES_STORAGE_KEY = "researchranker_saved_searches";
+const SEARCH_HISTORY_STORAGE_KEY = "researchranker_search_history";
 const citationStyles: CitationStyle[] = ["IEEE", "Vancouver", "APA"];
 const quartileFilters: QuartileFilter[] = [
   "All",
@@ -335,6 +343,7 @@ const [query, setQuery] = useState("");
 const [fromYear, setFromYear] = useState("1990");
 const [toYear, setToYear] = useState("2026");
 const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
+const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>([]);
 const [articles, setArticles] = useState<Article[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchMessage, setSearchMessage] = useState("");
@@ -485,7 +494,24 @@ const journalCarouselItems = useMemo<JournalCarouselItem[]>(() => {
 useEffect(() => {
   try {
     const saved = window.localStorage.getItem(SAVED_SEARCHES_STORAGE_KEY);
+useEffect(() => {
+  try {
+    const saved = window.localStorage.getItem(SEARCH_HISTORY_STORAGE_KEY);
 
+    if (!saved) {
+      return;
+    }
+
+    const parsed = JSON.parse(saved);
+
+    if (Array.isArray(parsed)) {
+      setSearchHistory(parsed);
+    }
+  } catch (error) {
+    console.error("Could not load search history:", error);
+    setSearchHistory([]);
+  }
+}, []);
     if (!saved) {
       return;
     }
@@ -540,6 +566,39 @@ function resetFilters() {
   setSortOption("Newest first");
   showToast(isArabic ? "تمت إعادة ضبط الفلاتر" : "Filters reset");
 }
+function addSearchToHistory(searchQuery: string) {
+  const cleanSearchQuery = searchQuery.trim();
+
+  if (!cleanSearchQuery) {
+    return;
+  }
+
+  const newHistoryItem: SearchHistoryItem = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    query: cleanSearchQuery,
+    fromYear,
+    toYear,
+    searchedAt: new Date().toISOString(),
+  };
+
+  const updatedHistory = [
+    newHistoryItem,
+    ...searchHistory.filter(
+      (item) =>
+        !(
+          item.query.toLowerCase() === cleanSearchQuery.toLowerCase() &&
+          item.fromYear === fromYear &&
+          item.toYear === toYear
+        )
+    ),
+  ].slice(0, 10);
+
+  setSearchHistory(updatedHistory);
+  window.localStorage.setItem(
+    SEARCH_HISTORY_STORAGE_KEY,
+    JSON.stringify(updatedHistory)
+  );
+}
 function saveCurrentSearch() {
   const cleanQuery = query.trim();
 
@@ -576,7 +635,6 @@ function saveCurrentSearch() {
 
   showToast(isArabic ? "تم حفظ البحث" : "Search saved");
 }
-
 function loadSavedSearch(savedSearch: SavedSearch) {
   setQuery(savedSearch.query);
   setFromYear(savedSearch.fromYear);
@@ -595,6 +653,19 @@ function deleteSavedSearch(id: string) {
 
   showToast(isArabic ? "تم حذف البحث المحفوظ" : "Saved search deleted");
 }
+function loadHistoryItem(historyItem: SearchHistoryItem) {
+  setQuery(historyItem.query);
+  setFromYear(historyItem.fromYear);
+  setToYear(historyItem.toYear);
+  showToast(isArabic ? "تم تحميل بحث من السجل" : "Search history item loaded");
+}
+
+function clearSearchHistory() {
+  setSearchHistory([]);
+  window.localStorage.removeItem(SEARCH_HISTORY_STORAGE_KEY);
+  showToast(isArabic ? "تم حذف سجل البحث" : "Search history cleared");
+}
+
   async function handleSearch() {
     const cleanQuery = query.trim();
 
@@ -606,7 +677,7 @@ function deleteSavedSearch(id: string) {
     const finalQuery = hasArabic(cleanQuery)
       ? enhanceArabicQuery(cleanQuery)
       : cleanQuery;
-
+addSearchToHistory(cleanQuery);
     setSearchLoading(true);
     setSearchMessage("");
     setArticles([]);
@@ -986,6 +1057,53 @@ function deleteSavedSearch(id: string) {
         : "No saved searches yet."}
     </p>
   )}
+  <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-4">
+  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div>
+      <h3 className="text-lg font-bold text-gray-900">
+        {isArabic ? "سجل البحث" : "Search History"}
+      </h3>
+
+      <p className="mt-1 text-sm text-gray-600">
+        {isArabic
+          ? "آخر عمليات البحث التي أجريتها يتم حفظها تلقائياً في هذا المتصفح."
+          : "Your recent searches are saved automatically in this browser."}
+      </p>
+    </div>
+
+    {searchHistory.length > 0 && (
+      <button
+        type="button"
+        onClick={clearSearchHistory}
+        className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700 transition active:scale-95 hover:bg-red-100"
+      >
+        {isArabic ? "حذف السجل" : "Clear history"}
+      </button>
+    )}
+  </div>
+
+  {searchHistory.length > 0 && (
+    <div className="mt-4 flex flex-wrap gap-2">
+      {searchHistory.map((historyItem) => (
+        <button
+          key={historyItem.id}
+          type="button"
+          onClick={() => loadHistoryItem(historyItem)}
+          title={historyItem.searchedAt}
+          className="rounded-full border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-bold text-gray-800 transition active:scale-95 hover:bg-gray-100"
+        >
+          {historyItem.query} ({historyItem.fromYear}-{historyItem.toYear})
+        </button>
+      ))}
+    </div>
+  )}
+
+  {searchHistory.length === 0 && (
+    <p className="mt-3 text-sm text-gray-500">
+      {isArabic ? "لا يوجد سجل بحث حالياً." : "No search history yet."}
+    </p>
+  )}
+</div>
 </div>
           {searchMessage && (
             <p className="mt-4 rounded-xl bg-gray-50 p-3 text-sm font-semibold text-gray-700">
