@@ -1329,7 +1329,10 @@ async function deleteArticleFromLibrary(articleId: string) {
     }
 
     setLibraryArticles((current) =>
-      current.filter((article) => (article.pmid || article.title) !== articleId)
+      current.filter((article) => {
+        const currentId = article.pmid || article.title;
+        return currentId !== articleId;
+      })
     );
 
     setSavedLibraryIds((current) => ({
