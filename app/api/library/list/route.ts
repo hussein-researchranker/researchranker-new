@@ -43,11 +43,11 @@ function normalizeArticle(value: unknown): LibraryArticle | null {
       sourceUrl: article.sourceUrl || article.pubmedUrl || "",
       pubmedUrl: article.pubmedUrl || article.sourceUrl || "",
       quartile: article.quartile || "Not found",
-      indexingStatus:
-        article.indexingStatus || "Unknown / check manually",
+      indexingStatus: article.indexingStatus || "Unknown / check manually",
       matchConfidence: article.matchConfidence || "Not matched",
     };
-  } catch {
+  } catch (error) {
+    console.error("Normalize library article error:", error);
     return null;
   }
 }
@@ -64,9 +64,9 @@ export async function GET() {
     }
 
     const indexKey = `library:${userId}:ids`;
-    const ids = await redis.smembers<string[]>(indexKey);
+    const ids = (await redis.smembers(indexKey)) as string[];
 
-    if (!ids || ids.length === 0) {
+    if (!Array.isArray(ids) || ids.length === 0) {
       return Response.json({ articles: [] });
     }
 
@@ -80,16 +80,23 @@ export async function GET() {
         const aTime = Date.parse(a.savedAt || "");
         const bTime = Date.parse(b.savedAt || "");
 
-        return (Number.isFinite(bTime) ? bTime : 0) -
-          (Number.isFinite(aTime) ? aTime : 0);
+        return (
+          (Number.isFinite(bTime) ? bTime : 0) -
+          (Number.isFinite(aTime) ? aTime : 0)
+        );
       });
 
     return Response.json({ articles });
   } catch (error) {
     console.error("List library error:", error);
 
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to load library.";
+
     return Response.json(
-      { error: "Failed to load library." },
+      { error: message },
       { status: 500 }
     );
   }
