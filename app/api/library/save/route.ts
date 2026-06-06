@@ -1,5 +1,20 @@
-import { auth } from "@clerk/nextjs/server";
 import { redis } from "@/lib/redis";
+
+type LibraryArticle = {
+  pmid?: string;
+  title?: string;
+  journal?: string;
+  pubdate?: string;
+  authors?: string;
+  doi?: string;
+  abstract?: string;
+  quartile?: string;
+  sjr?: string;
+  hIndex?: string;
+  publisher?: string;
+  sourceUrl?: string;
+  pubmedUrl?: string;
+};
 
 function cleanText(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -7,29 +22,10 @@ function cleanText(value: unknown) {
 
 export async function POST(request: Request) {
   try {
-    const { userId } = await auth();
+    const body = (await request.json()) as LibraryArticle;
 
-    if (!userId) {
-      return Response.json(
-        { error: "You must sign in to save articles." },
-        { status: 401 }
-      );
-    }
-
-    const body = await request.json();
-
-    const pmid = cleanText(body?.pmid);
-    const title = cleanText(body?.title);
-    const journal = cleanText(body?.journal);
-    const pubdate = cleanText(body?.pubdate);
-    const authors = cleanText(body?.authors);
-    const doi = cleanText(body?.doi);
-    const abstract = cleanText(body?.abstract);
-    const quartile = cleanText(body?.quartile);
-    const sjr = cleanText(body?.sjr);
-    const hIndex = cleanText(body?.hIndex);
-    const publisher = cleanText(body?.publisher);
-    const pubmedUrl = cleanText(body?.pubmedUrl);
+    const pmid = cleanText(body.pmid);
+    const title = cleanText(body.title);
 
     if (!pmid && !title) {
       return Response.json(
@@ -38,39 +34,31 @@ export async function POST(request: Request) {
       );
     }
 
-    const articleId =
-      pmid ||
-      title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .slice(0, 80);
+    const id = pmid || encodeURIComponent(title.toLowerCase());
+    const key = `library:${id}`;
 
-    const savedArticle = {
-      id: articleId,
+    const article = {
+      id,
       pmid,
       title,
-      journal,
-      pubdate,
-      authors,
-      doi,
-      abstract,
-      quartile,
-      sjr,
-      hIndex,
-      publisher,
-      pubmedUrl,
+      journal: cleanText(body.journal),
+      pubdate: cleanText(body.pubdate),
+      authors: cleanText(body.authors),
+      doi: cleanText(body.doi),
+      abstract: cleanText(body.abstract),
+      quartile: cleanText(body.quartile),
+      sjr: cleanText(body.sjr),
+      hIndex: cleanText(body.hIndex),
+      publisher: cleanText(body.publisher),
+      sourceUrl: cleanText(body.sourceUrl || body.pubmedUrl),
       savedAt: new Date().toISOString(),
     };
 
-    const articleKey = `library:${userId}:article:${articleId}`;
-    const listKey = `library:${userId}:articles`;
-
-    await redis.set(articleKey, savedArticle);
-    await redis.sadd(listKey, articleId);
+    await redis.set(key, article);
 
     return Response.json({
-      ok: true,
-      article: savedArticle,
+      success: true,
+      article,
     });
   } catch (error) {
     console.error("Save library article error:", error);
