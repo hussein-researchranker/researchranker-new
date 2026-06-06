@@ -1212,7 +1212,12 @@ addSearchToHistory(cleanQuery);
     }
   }
 async function saveArticleToLibrary(article: Article) {
-  const articleId = article.pmid || article.title;
+  const articleId = article.id || article.pmid || article.title;
+
+  if (!isSignedIn) {
+    showToast(t.libraryLoginRequired);
+    return;
+  }
 
   if (!articleId) {
     showToast(t.copyFailed || "Could not save the article.");
@@ -1231,7 +1236,7 @@ async function saveArticleToLibrary(article: Article) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        id: article.id || article.pmid || article.title,
+        id: articleId,
         pmid: article.pmid,
         title: article.title,
         journal: article.journal,
@@ -1277,6 +1282,11 @@ async function saveArticleToLibrary(article: Article) {
 }
 
 async function loadLibraryArticles() {
+  if (!isSignedIn) {
+    showToast(t.libraryLoginRequired);
+    return;
+  }
+
   setLibraryLoading(true);
 
   try {
@@ -1311,6 +1321,19 @@ async function loadLibraryArticles() {
       : [];
 
     setLibraryArticles(loadedArticles);
+    setSavedLibraryIds((current) => {
+      const next = { ...current };
+
+      loadedArticles.forEach((article) => {
+        const id = article.id || article.pmid || article.title;
+
+        if (id) {
+          next[id] = true;
+        }
+      });
+
+      return next;
+    });
     setShowLibrary(true);
 
     window.setTimeout(() => {
@@ -1328,6 +1351,11 @@ async function loadLibraryArticles() {
 }
 
 async function deleteArticleFromLibrary(articleId: string) {
+  if (!isSignedIn) {
+    showToast(t.libraryLoginRequired);
+    return;
+  }
+
   try {
     const response = await fetch("/api/library/delete", {
       method: "POST",

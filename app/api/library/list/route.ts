@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { redis } from "@/lib/redis";
 
 type LibraryArticle = {
@@ -9,45 +10,79 @@ type LibraryArticle = {
   authors?: string;
   doi?: string;
   abstract?: string;
+  source?: string;
+  sourceUrl?: string;
+  pubmedUrl?: string;
   quartile?: string;
+  indexingStatus?: string;
   sjr?: string;
   hIndex?: string;
   publisher?: string;
-  sourceUrl?: string;
-  pubmedUrl?: string;
+  issn?: string;
+  matchConfidence?: string;
+  savedAt?: string;
 };
+
+function normalizeArticle(value: unknown): LibraryArticle | null {
+  if (!value) return null;
+
+  try {
+    const article =
+      typeof value === "string"
+        ? (JSON.parse(value) as LibraryArticle)
+        : (value as LibraryArticle);
+
+    const id = article.id || article.pmid || article.title || "";
+
+    if (!id) return null;
+
+    return {
+      ...article,
+      id,
+      source: article.source || "PubMed",
+      sourceUrl: article.sourceUrl || article.pubmedUrl || "",
+      pubmedUrl: article.pubmedUrl || article.sourceUrl || "",
+      quartile: article.quartile || "Not found",
+      indexingStatus:
+        article.indexingStatus || "Unknown / check manually",
+      matchConfidence: article.matchConfidence || "Not matched",
+    };
+  } catch {
+    return null;
+  }
+}
 
 export async function GET() {
   try {
-    const keys = await redis.keys("library:*");
+    const { userId } = await auth();
 
-    if (!keys.length) {
+    if (!userId) {
+      return Response.json(
+        { error: "You must sign in to view your library." },
+        { status: 401 }
+      );
+    }
+
+    const indexKey = `library:${userId}:ids`;
+    const ids = await redis.smembers<string[]>(indexKey);
+
+    if (!ids || ids.length === 0) {
       return Response.json({ articles: [] });
     }
 
-    const values = await redis.mget(...keys);
+    const articleKeys = ids.map((id) => `library:${userId}:article:${id}`);
+    const values = await redis.mget(...articleKeys);
 
     const articles = values
-      .map((value, index) => {
-        if (!value) return null;
+      .map(normalizeArticle)
+      .filter((article): article is LibraryArticle => Boolean(article))
+      .sort((a, b) => {
+        const aTime = Date.parse(a.savedAt || "");
+        const bTime = Date.parse(b.savedAt || "");
 
-        const article =
-          typeof value === "string"
-            ? (JSON.parse(value) as LibraryArticle)
-            : (value as LibraryArticle);
-
-        const id =
-          article.id ||
-          article.pmid ||
-          keys[index].replace(/^library:/, "");
-
-        return {
-          ...article,
-          id,
-          sourceUrl: article.sourceUrl || article.pubmedUrl || "",
-        };
-      })
-      .filter(Boolean);
+        return (Number.isFinite(bTime) ? bTime : 0) -
+          (Number.isFinite(aTime) ? aTime : 0);
+      });
 
     return Response.json({ articles });
   } catch (error) {

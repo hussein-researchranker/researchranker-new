@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { redis } from "@/lib/redis";
 
 type LibraryArticle = {
@@ -25,8 +26,28 @@ function cleanText(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
+function makeArticleId(article: LibraryArticle) {
+  const pmid = cleanText(article.pmid);
+  const title = cleanText(article.title);
+  const providedId = cleanText(article.id);
+
+  if (providedId) return providedId;
+  if (pmid) return pmid;
+
+  return encodeURIComponent(title.toLowerCase());
+}
+
 export async function POST(request: Request) {
   try {
+    const { userId } = await auth();
+
+    if (!userId) {
+      return Response.json(
+        { error: "You must sign in to save articles." },
+        { status: 401 }
+      );
+    }
+
     const body = (await request.json()) as LibraryArticle;
 
     const pmid = cleanText(body.pmid);
@@ -39,8 +60,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const id = cleanText(body.id) || pmid || encodeURIComponent(title.toLowerCase());
-    const key = `library:${id}`;
+    const id = makeArticleId(body);
+    const articleKey = `library:${userId}:article:${id}`;
+    const indexKey = `library:${userId}:ids`;
 
     const article = {
       id,
@@ -55,7 +77,9 @@ export async function POST(request: Request) {
       sourceUrl: cleanText(body.sourceUrl || body.pubmedUrl),
       pubmedUrl: cleanText(body.pubmedUrl || body.sourceUrl),
       quartile: cleanText(body.quartile || "Not found"),
-      indexingStatus: cleanText(body.indexingStatus || "Unknown / check manually"),
+      indexingStatus: cleanText(
+        body.indexingStatus || "Unknown / check manually"
+      ),
       sjr: cleanText(body.sjr),
       hIndex: cleanText(body.hIndex),
       publisher: cleanText(body.publisher),
@@ -64,7 +88,8 @@ export async function POST(request: Request) {
       savedAt: new Date().toISOString(),
     };
 
-    await redis.set(key, article);
+    await redis.set(articleKey, article);
+    await redis.sadd(indexKey, id);
 
     return Response.json({
       success: true,
