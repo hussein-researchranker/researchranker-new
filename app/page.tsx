@@ -472,6 +472,9 @@ const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>([]);
 const [articles, setArticles] = useState<Article[]>([]);
 const [savingLibraryIds, setSavingLibraryIds] = useState<Record<string, boolean>>({});
 const [savedLibraryIds, setSavedLibraryIds] = useState<Record<string, boolean>>({});
+const [libraryArticles, setLibraryArticles] = useState<Article[]>([]);
+const [libraryLoading, setLibraryLoading] = useState(false);
+const [showLibrary, setShowLibrary] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchMessage, setSearchMessage] = useState("");
 
@@ -1225,10 +1228,8 @@ async function saveArticleToLibrary(article: Article) {
         pmid: article.pmid,
         title: article.title,
         journal: article.journal,
-pubdate: article.pubdate,
-        authors: Array.isArray(article.authors)
-          ? article.authors.join(", ")
-          : article.authors,
+        pubdate: article.pubdate,
+        authors: article.authors,
         doi: article.doi,
         abstract: article.abstract,
         quartile: article.quartile,
@@ -1260,6 +1261,97 @@ pubdate: article.pubdate,
       ...current,
       [articleId]: false,
     }));
+  }
+}
+
+async function loadLibraryArticles() {
+  setLibraryLoading(true);
+
+  try {
+    const response = await fetch("/api/library/list");
+    const data = await response.json();
+
+    if (!response.ok) {
+      showToast(data?.error || t.libraryLoginRequired);
+      return;
+    }
+
+    const loadedArticles: Article[] = Array.isArray(data.articles)
+      ? data.articles.map((article: Partial<Article> & { pubmedUrl?: string }) => ({
+          pmid: article.pmid || "",
+          title: article.title || "",
+          journal: article.journal || "",
+          pubdate: article.pubdate || "",
+          authors: article.authors || "",
+          doi: article.doi || "",
+          source: article.source || "PUBMED",
+          sourceUrl: article.sourceUrl || article.pubmedUrl || "",
+          quartile: article.quartile || "Not found",
+          indexingStatus: article.indexingStatus || "",
+          sjr: article.sjr || "",
+          hIndex: article.hIndex || "",
+          publisher: article.publisher || "",
+          issn: article.issn || "",
+          matchConfidence: article.matchConfidence || "",
+          abstract: article.abstract || "",
+        }))
+      : [];
+
+    setLibraryArticles(loadedArticles);
+    setShowLibrary(true);
+
+    const savedIds = loadedArticles.reduce<Record<string, boolean>>((current, article) => {
+      const articleId = article.pmid || article.title;
+
+      if (articleId) {
+        current[articleId] = true;
+      }
+
+      return current;
+    }, {});
+
+    setSavedLibraryIds((current) => ({
+      ...current,
+      ...savedIds,
+    }));
+  } catch (error) {
+    console.error("Load library failed:", error);
+    showToast(t.copyFailed || "Could not load library.");
+  } finally {
+    setLibraryLoading(false);
+  }
+}
+
+async function deleteArticleFromLibrary(articleId: string) {
+  try {
+    const response = await fetch("/api/library/delete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ id: articleId }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      showToast(data?.error || "Could not delete article.");
+      return;
+    }
+
+    setLibraryArticles((current) =>
+      current.filter((article) => (article.pmid || article.title) !== articleId)
+    );
+
+    setSavedLibraryIds((current) => ({
+      ...current,
+      [articleId]: false,
+    }));
+
+    showToast(isArabic ? "تم حذف المصدر من المكتبة" : "Article removed from library.");
+  } catch (error) {
+    console.error("Delete library article failed:", error);
+    showToast(t.copyFailed || "Could not delete article.");
   }
 }
   async function downloadWord() {
@@ -2093,6 +2185,18 @@ pubdate: article.pubdate,
                       </option>
                     ))}
                   </select>
+                  <button
+                    type="button"
+                    onClick={loadLibraryArticles}
+                    disabled={libraryLoading}
+                    className="mt-3 w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition active:scale-95 hover:bg-slate-50 disabled:opacity-60"
+                  >
+                    {libraryLoading
+                      ? isArabic
+                        ? "جاري التحميل..."
+                        : "Loading..."
+                      : t.myLibrary}
+                  </button>
                 </div>
 <div>
   <label className="text-sm font-bold text-gray-700">
@@ -2198,6 +2302,98 @@ pubdate: article.pubdate,
               </div>
             </div>
           )}
+
+
+{showLibrary && (
+  <section className="mt-6 rounded-2xl border border-emerald-100 bg-emerald-50 p-5">
+    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div>
+        <h3 className="text-xl font-bold text-gray-900">{t.myLibrary}</h3>
+        <p className="mt-1 text-sm text-gray-600">
+          {isArabic
+            ? "المصادر التي حفظتها تظهر هنا ويمكن حذفها عند الحاجة."
+            : "Saved articles appear here and can be removed when needed."}
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setShowLibrary(false)}
+        className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 transition active:scale-95 hover:bg-gray-50"
+      >
+        {isArabic ? "إخفاء المكتبة" : "Hide library"}
+      </button>
+    </div>
+
+    {libraryArticles.length === 0 ? (
+      <p className="mt-4 rounded-xl bg-white p-4 text-sm font-semibold text-gray-600">
+        {t.libraryEmpty}
+      </p>
+    ) : (
+      <div className="mt-4 space-y-3">
+        {libraryArticles.map((article) => {
+          const articleId = article.pmid || article.title;
+
+          return (
+            <article
+              key={articleId}
+              className="rounded-xl border border-emerald-100 bg-white p-4 shadow-sm"
+            >
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                    {article.source || "PUBMED"}
+                    {article.pmid ? ` · PMID: ${article.pmid}` : ""}
+                  </p>
+
+                  <h4 className="mt-2 text-lg font-bold text-gray-900">
+                    {article.title}
+                  </h4>
+
+                  <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-gray-700 md:grid-cols-2">
+                    <p>
+                      <strong>{t.journal}:</strong> {article.journal || "Not specified"}
+                    </p>
+                    <p>
+                      <strong>{t.date}:</strong> {article.pubdate || "Not specified"}
+                    </p>
+                    <p>
+                      <strong>{t.quartile}:</strong> {article.quartile || "Not found"}
+                    </p>
+                    <p>
+                      <strong>{t.doi}:</strong> {article.doi || "Not available"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  {article.sourceUrl && (
+                    <a
+                      href={article.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-xl border border-blue-200 px-4 py-2 text-sm font-bold text-blue-700"
+                    >
+                      {t.openPubMed}
+                    </a>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => deleteArticleFromLibrary(articleId)}
+                    className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700 transition active:scale-95 hover:bg-red-100"
+                  >
+                    {t.deleteFromLibrary}
+                  </button>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    )}
+  </section>
+)}
 
 <div ref={resultsSectionRef} className="mt-6 space-y-4">
             {filteredArticles.map((article, index) => (
