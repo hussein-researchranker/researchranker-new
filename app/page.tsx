@@ -144,6 +144,12 @@ const uiText = {
     quartileFilter: "Quartile filter",
     downloadWord: "Download Word",
     copySource: "Copy source",
+    saveToLibrary: "Save to Library",
+savedToLibrary: "Saved to Library",
+myLibrary: "My Library",
+deleteFromLibrary: "Delete",
+libraryEmpty: "No saved articles yet.",
+libraryLoginRequired: "Sign in to save articles.",
     openPubMed: "Open in PubMed",
     journal: "Journal",
     date: "Date",
@@ -197,6 +203,12 @@ const uiText = {
     quartileFilter: "فلترة حسب الربع",
     downloadWord: "تحميل Word",
     copySource: "نسخ المصدر",
+    saveToLibrary: "حفظ في المكتبة",
+savedToLibrary: "تم الحفظ في المكتبة",
+myLibrary: "مكتبتي",
+deleteFromLibrary: "حذف",
+libraryEmpty: "لا توجد مصادر محفوظة بعد.",
+libraryLoginRequired: "سجّل الدخول حتى تحفظ المصادر.",
     openPubMed: "فتح في PubMed",
     journal: "المجلة",
     date: "التاريخ",
@@ -458,6 +470,8 @@ const [maxResults, setMaxResults] = useState("50");
 const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
 const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>([]);
 const [articles, setArticles] = useState<Article[]>([]);
+const [savingLibraryIds, setSavingLibraryIds] = useState<Record<string, boolean>>({});
+const [savedLibraryIds, setSavedLibraryIds] = useState<Record<string, boolean>>({});
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchMessage, setSearchMessage] = useState("");
 
@@ -1188,7 +1202,66 @@ addSearchToHistory(cleanQuery);
       showToast(t.copyFailed);
     }
   }
+async function saveArticleToLibrary(article: Article) {
+  const articleId = article.pmid || article.title;
 
+  if (!articleId) {
+    showToast(t.copyFailed || "Could not save the article.");
+    return;
+  }
+
+  setSavingLibraryIds((current) => ({
+    ...current,
+    [articleId]: true,
+  }));
+
+  try {
+    const response = await fetch("/api/library/save", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        pmid: article.pmid,
+        title: article.title,
+        journal: article.journal,
+pubdate: article.pubdate,
+        authors: Array.isArray(article.authors)
+          ? article.authors.join(", ")
+          : article.authors,
+        doi: article.doi,
+        abstract: article.abstract,
+        quartile: article.quartile,
+        sjr: article.sjr,
+        hIndex: article.hIndex,
+        publisher: article.publisher,
+        pubmedUrl: article.sourceUrl,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      showToast(data?.error || t.libraryLoginRequired);
+      return;
+    }
+
+    setSavedLibraryIds((current) => ({
+      ...current,
+      [articleId]: true,
+    }));
+
+    showToast(t.savedToLibrary);
+  } catch (error) {
+    console.error("Save article failed:", error);
+    showToast(t.copyFailed || "Could not save the article.");
+  } finally {
+    setSavingLibraryIds((current) => ({
+      ...current,
+      [articleId]: false,
+    }));
+  }
+}
   async function downloadWord() {
     if (filteredArticles.length === 0) {
       showToast(t.noDownloadResults);
@@ -2261,6 +2334,23 @@ addSearchToHistory(cleanQuery);
                   >
                     {t.openPubMed}
                   </a>
+                  <button
+  type="button"
+  onClick={() => saveArticleToLibrary(article)}
+  disabled={
+    savingLibraryIds[article.pmid || article.title] ||
+    savedLibraryIds[article.pmid || article.title]
+  }
+  className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 disabled:opacity-60"
+>
+  {savedLibraryIds[article.pmid || article.title]
+    ? t.savedToLibrary
+    : savingLibraryIds[article.pmid || article.title]
+    ? isArabic
+      ? "جاري الحفظ..."
+      : "Saving..."
+    : t.saveToLibrary}
+</button>
                 </div>
 
                 {aiSummaryError[article.pmid] && (
