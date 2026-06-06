@@ -14,6 +14,7 @@ type NewsItem = {
 };
 
 type Article = {
+  id?: string;
   pmid: string;
   title: string;
   journal: string;
@@ -1279,18 +1280,23 @@ async function loadLibraryArticles() {
 
     const loadedArticles: Article[] = Array.isArray(data.articles)
       ? data.articles.map((article: Partial<Article> & { pubmedUrl?: string }) => ({
+          id: article.id || article.pmid || article.title || "",
           pmid: article.pmid || "",
           title: article.title || "",
           journal: article.journal || "",
           pubdate: article.pubdate || "",
           authors: article.authors || "",
           doi: article.doi || "",
-          abstract: article.abstract || "",
-          quartile: article.quartile || "Unknown",
+          source: article.source || "PubMed",
+          sourceUrl: article.sourceUrl || article.pubmedUrl || "",
+          quartile: article.quartile || "Not found",
+          indexingStatus: article.indexingStatus || "Unknown / check manually",
           sjr: article.sjr || "",
           hIndex: article.hIndex || "",
           publisher: article.publisher || "",
-          sourceUrl: article.sourceUrl || article.pubmedUrl || "",
+          issn: article.issn || "",
+          matchConfidence: article.matchConfidence || "Not matched",
+          abstract: article.abstract || "",
         }))
       : [];
 
@@ -1330,7 +1336,7 @@ async function deleteArticleFromLibrary(articleId: string) {
 
     setLibraryArticles((current) =>
       current.filter((article) => {
-        const currentId = article.pmid || article.title;
+        const currentId = article.id || article.pmid || article.title;
         return currentId !== articleId;
       })
     );
@@ -1460,6 +1466,121 @@ async function deleteArticleFromLibrary(articleId: string) {
 
     downloadTextFile(content, fileName, "application/x-bibtex");
     showToast(isArabic ? "تم تحميل ملف BibTeX" : "BibTeX file downloaded");
+  }
+
+  async function downloadLibraryWord() {
+    if (libraryArticles.length === 0) {
+      showToast(t.libraryEmpty);
+      return;
+    }
+
+    const children: Paragraph[] = [
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: "ResearchRanker Saved Library References",
+            bold: true,
+            size: 32,
+          }),
+        ],
+        spacing: { after: 260 },
+      }),
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: `Citation style: ${citationStyle}`,
+            bold: true,
+          }),
+        ],
+        spacing: { after: 220 },
+      }),
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: `Saved articles: ${libraryArticles.length}`,
+          }),
+        ],
+        spacing: { after: 260 },
+      }),
+    ];
+
+    libraryArticles.forEach((article, index) => {
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: formatCitation(article, citationStyle, index + 1),
+            }),
+          ],
+          spacing: { after: 180 },
+        })
+      );
+
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: `Journal: ${article.journal || "Unknown journal"} | Quartile: ${
+                article.quartile || "Not found"
+              } | Indexing Status: ${
+                article.indexingStatus || "Unknown / check manually"
+              }`,
+              italics: true,
+              size: 20,
+            }),
+          ],
+          spacing: { after: 160 },
+        })
+      );
+    });
+
+    const document = new Document({
+      sections: [
+        {
+          children,
+        },
+      ],
+    });
+
+    const blob = await Packer.toBlob(document);
+    const fileName = `ResearchRanker-Library-${citationStyle}.docx`;
+
+    saveAs(blob, fileName);
+    showToast(
+      isArabic
+        ? `تم تحميل مكتبة المصادر بصيغة Word`
+        : `Library Word file downloaded`
+    );
+  }
+
+  function downloadLibraryRIS() {
+    if (libraryArticles.length === 0) {
+      showToast(t.libraryEmpty);
+      return;
+    }
+
+    const content = libraryArticles
+      .map((article) => formatRIS(article))
+      .join("\n\n");
+    const fileName = "ResearchRanker-Library.ris";
+
+    downloadTextFile(content, fileName, "application/x-research-info-systems");
+    showToast(isArabic ? "تم تحميل مكتبة المصادر بصيغة RIS" : "Library RIS file downloaded");
+  }
+
+  function downloadLibraryBibTeX() {
+    if (libraryArticles.length === 0) {
+      showToast(t.libraryEmpty);
+      return;
+    }
+
+    const content = libraryArticles
+      .map((article, index) => formatBibTeX(article, index + 1))
+      .join("\n\n");
+    const fileName = "ResearchRanker-Library.bib";
+
+    downloadTextFile(content, fileName, "application/x-bibtex");
+    showToast(isArabic ? "تم تحميل مكتبة المصادر بصيغة BibTeX" : "Library BibTeX file downloaded");
   }
 
 
@@ -2311,13 +2432,42 @@ async function deleteArticleFromLibrary(articleId: string) {
         </p>
       </div>
 
-      <button
-        type="button"
-        onClick={() => setShowLibrary(false)}
-        className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 transition active:scale-95 hover:bg-gray-50"
-      >
-        {isArabic ? "إخفاء المكتبة" : "Hide library"}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={downloadLibraryWord}
+          disabled={libraryArticles.length === 0}
+          className="rounded-xl border border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-700 transition active:scale-95 hover:bg-emerald-50 disabled:opacity-50"
+        >
+          {isArabic ? "تصدير المكتبة Word" : "Export Library Word"}
+        </button>
+
+        <button
+          type="button"
+          onClick={downloadLibraryRIS}
+          disabled={libraryArticles.length === 0}
+          className="rounded-xl border border-blue-200 bg-white px-4 py-2 text-sm font-bold text-blue-700 transition active:scale-95 hover:bg-blue-50 disabled:opacity-50"
+        >
+          {isArabic ? "تصدير RIS" : "Export RIS"}
+        </button>
+
+        <button
+          type="button"
+          onClick={downloadLibraryBibTeX}
+          disabled={libraryArticles.length === 0}
+          className="rounded-xl border border-purple-200 bg-white px-4 py-2 text-sm font-bold text-purple-700 transition active:scale-95 hover:bg-purple-50 disabled:opacity-50"
+        >
+          {isArabic ? "تصدير BibTeX" : "Export BibTeX"}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowLibrary(false)}
+          className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 transition active:scale-95 hover:bg-gray-50"
+        >
+          {isArabic ? "إخفاء المكتبة" : "Hide library"}
+        </button>
+      </div>
     </div>
 
     {libraryArticles.length === 0 ? (
@@ -2327,7 +2477,7 @@ async function deleteArticleFromLibrary(articleId: string) {
     ) : (
       <div className="mt-4 space-y-3">
         {libraryArticles.map((article) => {
-          const articleId = article.pmid || article.title;
+          const articleId = article.id || article.pmid || article.title;
 
           return (
             <article
