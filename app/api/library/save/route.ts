@@ -1,6 +1,7 @@
 import { redis } from "@/lib/redis";
 
 type LibraryArticle = {
+  id?: string;
   pmid?: string;
   title?: string;
   journal?: string;
@@ -8,12 +9,16 @@ type LibraryArticle = {
   authors?: string;
   doi?: string;
   abstract?: string;
+  source?: string;
+  sourceUrl?: string;
+  pubmedUrl?: string;
   quartile?: string;
+  indexingStatus?: string;
   sjr?: string;
   hIndex?: string;
   publisher?: string;
-  sourceUrl?: string;
-  pubmedUrl?: string;
+  issn?: string;
+  matchConfidence?: string;
 };
 
 function cleanText(value: unknown) {
@@ -34,7 +39,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const id = pmid || encodeURIComponent(title.toLowerCase());
+    const id = cleanText(body.id) || pmid || encodeURIComponent(title.toLowerCase());
     const key = `library:${id}`;
 
     const article = {
@@ -46,11 +51,16 @@ export async function POST(request: Request) {
       authors: cleanText(body.authors),
       doi: cleanText(body.doi),
       abstract: cleanText(body.abstract),
-      quartile: cleanText(body.quartile),
+      source: cleanText(body.source || "PubMed"),
+      sourceUrl: cleanText(body.sourceUrl || body.pubmedUrl),
+      pubmedUrl: cleanText(body.pubmedUrl || body.sourceUrl),
+      quartile: cleanText(body.quartile || "Not found"),
+      indexingStatus: cleanText(body.indexingStatus || "Unknown / check manually"),
       sjr: cleanText(body.sjr),
       hIndex: cleanText(body.hIndex),
       publisher: cleanText(body.publisher),
-      sourceUrl: cleanText(body.sourceUrl || body.pubmedUrl),
+      issn: cleanText(body.issn),
+      matchConfidence: cleanText(body.matchConfidence || "Not matched"),
       savedAt: new Date().toISOString(),
     };
 

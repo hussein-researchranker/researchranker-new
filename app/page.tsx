@@ -426,7 +426,7 @@ function formatBibTeX(article: Article, index: number) {
   date = {${escapeExportValue(article.pubdate || "")}},
   doi = {${escapeExportValue(doi)}},
   url = {${escapeExportValue(url || "")}},
-  note = {Quartile: ${escapeExportValue(article.quartile || "Not found")}; Indexing: ${escapeExportValue(article.indexingStatus || "Unknown")}}
+  note = {Quartile: ${escapeExportValue(article.quartile || "Not found")}; Indexing: ${escapeExportValue(article.indexingStatus || "Unknown")}; ISSN: ${escapeExportValue(article.issn || "")}; Match: ${escapeExportValue(article.matchConfidence || "Not matched")}}
 }`;
 }
 
@@ -445,9 +445,13 @@ function formatRIS(article: Article) {
     `DA  - ${cleanText(article.pubdate || "")}`,
     doi ? `DO  - ${doi}` : "",
     url ? `UR  - ${url}` : "",
+    article.issn ? `SN  - ${article.issn}` : "",
+    article.publisher ? `PB  - ${article.publisher}` : "",
     article.pmid ? `AN  - PMID:${article.pmid}` : "",
     article.quartile ? `N1  - Quartile: ${article.quartile}` : "",
     article.indexingStatus ? `N1  - Indexing status: ${article.indexingStatus}` : "",
+    article.matchConfidence ? `N1  - Match confidence: ${article.matchConfidence}` : "",
+    article.source ? `DB  - ${article.source}` : "",
     "ER  -",
   ];
 
@@ -1227,6 +1231,7 @@ async function saveArticleToLibrary(article: Article) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        id: article.id || article.pmid || article.title,
         pmid: article.pmid,
         title: article.title,
         journal: article.journal,
@@ -1234,11 +1239,16 @@ async function saveArticleToLibrary(article: Article) {
         authors: article.authors,
         doi: article.doi,
         abstract: article.abstract,
+        source: article.source || "PubMed",
+        sourceUrl: article.sourceUrl,
+        pubmedUrl: article.sourceUrl,
         quartile: article.quartile,
+        indexingStatus: article.indexingStatus,
         sjr: article.sjr,
         hIndex: article.hIndex,
         publisher: article.publisher,
-        pubmedUrl: article.sourceUrl,
+        issn: article.issn,
+        matchConfidence: article.matchConfidence,
       }),
     });
 
@@ -1404,10 +1414,14 @@ async function deleteArticleFromLibrary(articleId: string) {
         new Paragraph({
           children: [
             new TextRun({
-              text: `Journal: ${article.journal} | Quartile: ${
+              text: `Journal: ${article.journal || "Unknown journal"} | Quartile: ${
                 article.quartile || "Not found"
               } | Indexing Status: ${
                 article.indexingStatus || "Unknown / check manually"
+              } | SJR: ${article.sjr || "N/A"} | H-index: ${
+                article.hIndex || "N/A"
+              } | ISSN: ${article.issn || "N/A"} | Match: ${
+                article.matchConfidence || "Not matched"
               }`,
               italics: true,
               size: 20,
@@ -1524,6 +1538,10 @@ async function deleteArticleFromLibrary(articleId: string) {
                 article.quartile || "Not found"
               } | Indexing Status: ${
                 article.indexingStatus || "Unknown / check manually"
+              } | SJR: ${article.sjr || "N/A"} | H-index: ${
+                article.hIndex || "N/A"
+              } | ISSN: ${article.issn || "N/A"} | Match: ${
+                article.matchConfidence || "Not matched"
               }`,
               italics: true,
               size: 20,
