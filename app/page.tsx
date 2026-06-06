@@ -492,6 +492,7 @@ const [aiSummaryError, setAiSummaryError] = useState<Record<string, string>>({})
 const resultsSectionRef = useRef<HTMLDivElement | null>(null);
 const newsSliderRef = useRef<HTMLDivElement | null>(null);
 const journalSliderRef = useRef<HTMLDivElement | null>(null);
+const librarySectionRef = useRef<HTMLDivElement | null>(null);
 const filteredArticles = useMemo(() => {
   let result = [...articles];
 
@@ -1284,36 +1285,24 @@ async function loadLibraryArticles() {
           pubdate: article.pubdate || "",
           authors: article.authors || "",
           doi: article.doi || "",
-          source: article.source || "PUBMED",
-          sourceUrl: article.sourceUrl || article.pubmedUrl || "",
-          quartile: article.quartile || "Not found",
-          indexingStatus: article.indexingStatus || "",
+          abstract: article.abstract || "",
+          quartile: article.quartile || "Unknown",
           sjr: article.sjr || "",
           hIndex: article.hIndex || "",
           publisher: article.publisher || "",
-          issn: article.issn || "",
-          matchConfidence: article.matchConfidence || "",
-          abstract: article.abstract || "",
+          sourceUrl: article.sourceUrl || article.pubmedUrl || "",
         }))
       : [];
 
     setLibraryArticles(loadedArticles);
     setShowLibrary(true);
 
-    const savedIds = loadedArticles.reduce<Record<string, boolean>>((current, article) => {
-      const articleId = article.pmid || article.title;
-
-      if (articleId) {
-        current[articleId] = true;
-      }
-
-      return current;
-    }, {});
-
-    setSavedLibraryIds((current) => ({
-      ...current,
-      ...savedIds,
-    }));
+    window.setTimeout(() => {
+      librarySectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 150);
   } catch (error) {
     console.error("Load library failed:", error);
     showToast(t.copyFailed || "Could not load library.");
@@ -2305,7 +2294,10 @@ async function deleteArticleFromLibrary(articleId: string) {
 
 
 {showLibrary && (
-  <section className="mt-6 rounded-2xl border border-emerald-100 bg-emerald-50 p-5">
+  <section
+    ref={librarySectionRef}
+    className="mt-6 rounded-2xl border border-emerald-100 bg-emerald-50 p-5"
+  >
     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div>
         <h3 className="text-xl font-bold text-gray-900">{t.myLibrary}</h3>
