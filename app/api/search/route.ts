@@ -324,7 +324,66 @@ async function fetchPubMedAbstracts(ids: string[]) {
 
   return abstractByPmid;
 }
+function applyFieldFilter(query: string, field: string) {
+  const cleanQuery = query.trim();
 
+  if (!cleanQuery || field === "all") {
+    return cleanQuery;
+  }
+
+  const fieldFilters: Record<string, string> = {
+    medicine:
+      "(medicine OR clinical OR patient OR disease OR diagnosis OR therapy OR hospital OR healthcare)",
+    "life-sciences":
+      "(biology OR biological OR cell OR molecular OR genetics OR physiology)",
+    biochemistry:
+      "(biochemistry OR biochemical OR enzyme OR protein OR metabolism OR biomarker)",
+    chemistry:
+      "(chemistry OR chemical OR synthesis OR compound OR molecule OR analytical)",
+    physics:
+      "(physics OR physical OR quantum OR optics OR mechanics OR thermodynamics)",
+    "computer-science":
+      "(computer science OR artificial intelligence OR machine learning OR deep learning OR software OR algorithm OR data mining OR neural network)",
+    engineering:
+      "(engineering OR mechanical OR electrical OR civil OR materials OR design OR optimization)",
+    mathematics:
+      "(mathematics OR mathematical OR statistics OR probability OR algebra OR geometry OR modeling)",
+    "environmental-science":
+      "(environment OR environmental OR pollution OR climate OR ecosystem OR sustainability)",
+    agriculture:
+      "(agriculture OR crop OR soil OR plant OR irrigation OR livestock)",
+    education:
+      "(education OR teaching OR learning OR curriculum OR students OR classroom OR pedagogy)",
+    psychology:
+      "(psychology OR psychological OR behavior OR cognition OR mental OR emotion)",
+    "social-sciences":
+      "(social science OR sociology OR society OR community OR culture)",
+    business:
+      "(business OR management OR marketing OR organization OR leadership)",
+    economics:
+      "(economics OR economic OR finance OR market OR trade OR development)",
+    law:
+      "(law OR legal OR legislation OR regulation OR policy)",
+    "arts-humanities":
+      "(humanities OR philosophy OR arts OR culture OR ethics)",
+    linguistics:
+      "(linguistics OR language OR discourse OR phonology OR syntax OR semantics)",
+    literature:
+      "(literature OR literary OR novel OR poetry OR narrative OR text analysis)",
+    history:
+      "(history OR historical OR archive OR civilization OR heritage)",
+    geography:
+      "(geography OR geographic OR spatial OR GIS OR urban OR regional)",
+  };
+
+  const filter = fieldFilters[field];
+
+  if (!filter) {
+    return cleanQuery;
+  }
+
+  return `(${cleanQuery}) AND ${filter}`;
+}
 function buildPubMedQuery(query: string, fromYear: string, toYear: string) {
   const cleanQuery = cleanText(query);
   const startYear = /^\d{4}$/.test(fromYear) ? fromYear : "2020";
@@ -340,6 +399,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
 
     const query = cleanText(searchParams.get("query"));
+    const field = cleanText(searchParams.get("field") || "all");
     const fromYear = cleanText(searchParams.get("fromYear") || "2020");
     const toYear = cleanText(
       searchParams.get("toYear") || new Date().getFullYear()
@@ -356,7 +416,8 @@ export async function GET(request: Request) {
     }
 
     const scimagoJournals = await loadScimagoData();
-    const pubmedQuery = buildPubMedQuery(query, fromYear, toYear);
+    const fieldFilteredQuery = applyFieldFilter(query, field);
+const pubmedQuery = buildPubMedQuery(fieldFilteredQuery, fromYear, toYear);
 
     const searchUrl = new URL(`${PUBMED_BASE_URL}/esearch.fcgi`);
     searchUrl.searchParams.set("db", "pubmed");
