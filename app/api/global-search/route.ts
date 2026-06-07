@@ -492,23 +492,13 @@ function findScimagoMatch(article: GlobalArticle, journals: ScimagoJournal[]) {
   } | null = null;
 
   for (const journal of journals) {
-    if (!journal.normalizedTitle || journal.normalizedTitle.length < 6) {
+    if (!journal.normalizedTitle || journal.normalizedTitle.length < 10) {
       continue;
-    }
-
-    if (
-      journal.normalizedTitle.includes(articleJournalTitle) ||
-      articleJournalTitle.includes(journal.normalizedTitle)
-    ) {
-      return {
-        journal,
-        confidence: "Journal title partial match",
-      };
     }
 
     const score = tokenSimilarity(articleTokens, journal.titleTokens);
 
-    if (score >= 0.72 && (!bestMatch || score > bestMatch.score)) {
+    if (score >= 0.92 && (!bestMatch || score > bestMatch.score)) {
       bestMatch = {
         journal,
         score,
@@ -519,7 +509,7 @@ function findScimagoMatch(article: GlobalArticle, journals: ScimagoJournal[]) {
   if (bestMatch) {
     return {
       journal: bestMatch.journal,
-      confidence: `Journal title token match (${bestMatch.score.toFixed(2)})`,
+      confidence: `Journal title strict token match (${bestMatch.score.toFixed(2)})`,
     };
   }
 
