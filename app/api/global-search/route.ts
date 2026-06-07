@@ -1,3 +1,5 @@
+import path from "path";
+import { readFile } from "fs/promises";
 type GlobalArticle = {
   id: string;
   pmid?: string;
@@ -18,7 +20,18 @@ type GlobalArticle = {
   issn: string;
   matchConfidence: string;
 };
+type ScimagoJournal = {
+  title: string;
+  normalizedTitle: string;
+  issns: string[];
+  quartile: string;
+  sjr: string;
+  hIndex: string;
+  publisher: string;
+  categories: string;
+};
 
+let scimagoCache: ScimagoJournal[] | null = null;
 type CrossrefAuthor = {
   given?: string;
   family?: string;
@@ -191,7 +204,242 @@ function normalizeCrossrefWork(work: CrossrefWork): GlobalArticle | null {
     matchConfidence: "Crossref metadata",
   };
 }
+function parseCsvLine(line: string, delimiter: string) {
+  const values: string[] = [];
+  let current = "";
+  let insideQuotes = false;
 
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const nextChar = line[index + 1];
+
+    if (char === '"' && nextChar === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      insideQuotes = !insideQuotes;
+      continue;
+    }
+
+    if (char === delimiter && !insideQuotes) {
+      values.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  values.push(current.trim());
+
+  return values;
+}
+
+function detectDelimiter(headerLine: string) {
+  const semicolonCount = (headerLine.match(/;/g) || []).length;
+  const commaCount = (headerLine.match(/,/g) || []).length;
+
+  return semicolonCount > commaCount ? ";" : ",";
+}
+
+function getRowValue(
+  row: Record<string, string>,
+  possibleNames: string[]
+) {
+  for (const name of possibleNames) {
+    const value = row[name];
+
+    if (value) {
+      return cleanText(value);
+    }
+  }
+
+  return "";
+}
+
+function normalizeJournalTitle(value: string) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/&amp;/g, "and")
+    .replace(/&/g, "and")
+    .replace(/\bthe\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeIssn(value: string) {
+  return cleanText(value)
+    .replace(/[^0-9xX]/g, "")
+    .toUpperCase();
+}
+
+function splitIssns(value: string) {
+  return cleanText(value)
+    .split(/[,; ]+/)
+    .map(normalizeIssn)
+    .filter(Boolean);
+}
+
+function extractQuartile(row: Record<string, string>) {
+  const directQuartile = getRowValue(row, [
+    "SJR Best Quartile",
+    "Best Quartile",
+    "Quartile",
+    "quartile",
+  ]);
+
+  if (/^Q[1-4]$/i.test(directQuartile)) {
+    return directQuartile.toUpperCase();
+  }
+
+  const categories = getRowValue(row, ["Categories", "categories"]);
+  const match = categories.match(/\bQ[1-4]\b/i);
+
+  return match ? match[0].toUpperCase() : "Not found";
+}
+
+async function loadScimagoJournals() {
+  if (scimagoCache) {
+    return scimagoCache;
+  }
+
+  const filePath = path.join(process.cwd(), "public", "scimagojr.csv");
+  const fileContent = await readFile(filePath, "utf8");
+
+  const lines = fileContent
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    scimagoCache = [];
+    return scimagoCache;
+  }
+
+  const delimiter = detectDelimiter(lines[0]);
+  const headers = parseCsvLine(lines[0], delimiter).map((header) =>
+    cleanText(header).replace(/^\uFEFF/, "")
+  );
+
+  const journals: ScimagoJournal[] = lines
+    .slice(1)
+    .map((line) => {
+      const values = parseCsvLine(line, delimiter);
+      const row: Record<string, string> = {};
+
+      headers.forEach((header, index) => {
+        row[header] = values[index] || "";
+      });
+
+      const title = getRowValue(row, ["Title", "title", "Journal", "journal"]);
+      const issn = getRowValue(row, ["Issn", "ISSN", "issn"]);
+      const quartile = extractQuartile(row);
+
+      if (!title && !issn) {
+        return null;
+      }
+
+      return {
+        title,
+        normalizedTitle: normalizeJournalTitle(title),
+        issns: splitIssns(issn),
+        quartile,
+        sjr: getRowValue(row, ["SJR", "sjr"]),
+        hIndex: getRowValue(row, ["H index", "H Index", "hIndex"]),
+        publisher: getRowValue(row, ["Publisher", "publisher"]),
+        categories: getRowValue(row, ["Categories", "categories"]),
+      };
+    })
+    .filter((journal): journal is ScimagoJournal => Boolean(journal));
+
+  scimagoCache = journals;
+
+  return scimagoCache;
+}
+
+function findScimagoMatch(article: GlobalArticle, journals: ScimagoJournal[]) {
+  const articleIssns = splitIssns(article.issn);
+
+  if (articleIssns.length > 0) {
+    const issnMatch = journals.find((journal) =>
+      journal.issns.some((journalIssn) => articleIssns.includes(journalIssn))
+    );
+
+    if (issnMatch) {
+      return {
+        journal: issnMatch,
+        confidence: "ISSN exact match",
+      };
+    }
+  }
+
+  const articleJournalTitle = normalizeJournalTitle(article.journal);
+
+  if (!articleJournalTitle) {
+    return null;
+  }
+
+  const exactTitleMatch = journals.find(
+    (journal) => journal.normalizedTitle === articleJournalTitle
+  );
+
+  if (exactTitleMatch) {
+    return {
+      journal: exactTitleMatch,
+      confidence: "Journal title exact match",
+    };
+  }
+
+  if (articleJournalTitle.length >= 8) {
+    const softTitleMatch = journals.find((journal) => {
+      if (!journal.normalizedTitle || journal.normalizedTitle.length < 8) {
+        return false;
+      }
+
+      return (
+        journal.normalizedTitle.includes(articleJournalTitle) ||
+        articleJournalTitle.includes(journal.normalizedTitle)
+      );
+    });
+
+    if (softTitleMatch) {
+      return {
+        journal: softTitleMatch,
+        confidence: "Journal title partial match",
+      };
+    }
+  }
+
+  return null;
+}
+
+function enrichWithScimago(
+  article: GlobalArticle,
+  journals: ScimagoJournal[]
+): GlobalArticle {
+  const match = findScimagoMatch(article, journals);
+
+  if (!match) {
+    return article;
+  }
+
+  return {
+    ...article,
+    quartile: match.journal.quartile || article.quartile,
+    sjr: match.journal.sjr || article.sjr,
+    hIndex: match.journal.hIndex || article.hIndex,
+    publisher: match.journal.publisher || article.publisher,
+    indexingStatus:
+      match.journal.quartile && match.journal.quartile !== "Not found"
+        ? `SCImago indexed / ${match.journal.quartile}`
+        : "SCImago indexed / quartile not clearly found",
+    matchConfidence: match.confidence,
+  };
+}
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -247,16 +495,19 @@ export async function GET(request: Request) {
       );
     }
 
-    const articles = (data.message?.items || [])
-      .map(normalizeCrossrefWork)
-      .filter((article): article is GlobalArticle => Boolean(article))
-      .filter((article) => {
-        const year = getYearFromDate(article.pubdate);
+    const scimagoJournals = await loadScimagoJournals();
 
-        if (!year) return true;
+const articles = (data.message?.items || [])
+  .map(normalizeCrossrefWork)
+  .filter((article): article is GlobalArticle => Boolean(article))
+  .map((article) => enrichWithScimago(article, scimagoJournals))
+  .filter((article) => {
+    const year = getYearFromDate(article.pubdate);
 
-        return year >= fromYear && year <= toYear;
-      });
+    if (!year) return true;
+
+    return year >= fromYear && year <= toYear;
+  });
 
     return Response.json(articles);
   } catch (error) {
