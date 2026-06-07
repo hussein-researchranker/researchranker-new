@@ -26,7 +26,19 @@ type Article = {
 };
 
 type CitationStyle = "IEEE" | "Vancouver" | "APA";
-
+type PdfCheckResult = {
+  available: boolean;
+  doi?: string;
+  isOpenAccess?: boolean;
+  oaStatus?: string;
+  pdfUrl?: string;
+  landingPageUrl?: string;
+  license?: string;
+  version?: string;
+  hostType?: string;
+  message?: string;
+  error?: string;
+};
 function cleanText(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
@@ -156,7 +168,8 @@ export default function ResultsPage() {
     {}
   );
   const [savingIds, setSavingIds] = useState<Record<string, boolean>>({});
-
+const [pdfLoading, setPdfLoading] = useState<Record<string, boolean>>({});
+const [pdfResults, setPdfResults] = useState<Record<string, PdfCheckResult>>({});
   const filteredArticles = useMemo(() => {
     if (quartile === "All") return articles;
 
@@ -335,7 +348,57 @@ export default function ResultsPage() {
       setSummaryLoading((current) => ({ ...current, [articleId]: false }));
     }
   }
+async function checkPdfAccess(article: Article) {
+  const articleId = article.doi || article.pmid || article.title || "";
 
+  if (!articleId) {
+    setMessage("لا يمكن فحص PDF بدون DOI أو معرف واضح.");
+    return;
+  }
+
+  if (!article.doi) {
+    setMessage("لا يمكن فحص الوصول المفتوح لأن هذا المصدر لا يحتوي DOI.");
+    return;
+  }
+
+  try {
+    setPdfLoading((current) => ({ ...current, [articleId]: true }));
+
+    const params = new URLSearchParams({
+      doi: article.doi,
+    });
+
+    const response = await fetch(`/api/pdf-check?${params.toString()}`);
+    const data = (await response.json()) as PdfCheckResult;
+
+    setPdfResults((current) => ({ ...current, [articleId]: data }));
+
+    if (!response.ok) {
+      throw new Error(data?.error || "PDF check failed.");
+    }
+
+    if (data.pdfUrl) {
+      window.open(data.pdfUrl, "_blank", "noopener,noreferrer");
+      setMessage("تم فتح رابط PDF المفتوح قانونياً.");
+      return;
+    }
+
+    if (data.landingPageUrl) {
+      window.open(data.landingPageUrl, "_blank", "noopener,noreferrer");
+      setMessage(data.message || "تم فتح صفحة الوصول المفتوح.");
+      return;
+    }
+
+    setMessage(data.message || "لا يوجد PDF مفتوح قانونياً لهذا المصدر.");
+  } catch (error) {
+    console.error("PDF check error:", error);
+    setMessage(
+      error instanceof Error ? error.message : "فشل فحص PDF / Open Access."
+    );
+  } finally {
+    setPdfLoading((current) => ({ ...current, [articleId]: false }));
+  }
+}
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-8" dir="rtl">
       <section className="mx-auto max-w-6xl">
@@ -584,26 +647,44 @@ export default function ResultsPage() {
                         : "التلخيص الذكي ✨"}
                     </button>
 
-                    {sourceUrl ? (
-                      <a
-                        href={sourceUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700"
-                      >
-                        فتح النص/المصدر
-                      </a>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled
-                        className="rounded-xl border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-bold text-slate-400"
-                      >
-                        PDF غير متاح
-                      </button>
-                    )}
-                  </div>
+ <button
+  type="button"
+  onClick={() => checkPdfAccess(article)}
+  disabled={pdfLoading[articleId] || !article.doi}
+  className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-bold text-orange-700 disabled:opacity-60"
+>
+  {pdfLoading[articleId] ? "جاري فحص PDF..." : "PDF / Open Access"}
+</button>
 
+{sourceUrl && (
+  <a
+    href={sourceUrl}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700"
+  >
+    فتح صفحة المصدر
+  </a>
+)}
+                  </div>
+{pdfResults[articleId] && (
+  <div className="mt-4 rounded-2xl border border-orange-100 bg-orange-50 p-4 text-sm leading-7 text-orange-900">
+    <p className="font-black">PDF / Open Access Status</p>
+    <p>{pdfResults[articleId].message || "No message returned."}</p>
+    <p>
+      <span className="font-bold">OA status:</span>{" "}
+      {pdfResults[articleId].oaStatus || "Unknown"}
+    </p>
+    <p>
+      <span className="font-bold">License:</span>{" "}
+      {pdfResults[articleId].license || "Not available"}
+    </p>
+    <p>
+      <span className="font-bold">Version:</span>{" "}
+      {pdfResults[articleId].version || "Not available"}
+    </p>
+  </div>
+)}
                   {summaries[articleId] && (
                     <pre className="mt-5 whitespace-pre-wrap rounded-2xl border border-purple-100 bg-purple-50 p-4 text-sm leading-7 text-slate-700">
                       {summaries[articleId]}
