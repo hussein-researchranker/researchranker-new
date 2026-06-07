@@ -51,7 +51,7 @@ export default function SearchWizard() {
       field,
     });
 
-    window.location.href = `/advanced-search?${params.toString()}`;
+    window.location.href = `/results?${params.toString()}`;
   }
 
   return (
