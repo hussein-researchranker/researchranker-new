@@ -1,4 +1,6 @@
 import Link from "next/link";
+import path from "path";
+import { readFile } from "fs/promises";
 
 type IraqiJournal = {
   name: string;
@@ -17,91 +19,18 @@ type JournalNews = {
   description: string;
 };
 
-const iraqiJournals: IraqiJournal[] = [
-  {
-    name: "Iraqi Academic Scientific Journals (IASJ)",
-    publisher: "Ministry of Higher Education and Scientific Research",
-    field: "بوابة وطنية متعددة التخصصات",
-    status: "محلية",
-    quartile: "غير مؤكد",
-    indexing: "IASJ repository",
-    note: "بوابة مركزية للبحث داخل المجلات الأكاديمية العراقية. تحقق من تصنيف كل مجلة منفردة قبل الاستشهاد أو الإرسال.",
-    url: "https://iasj.rdd.edu.iq/journals/",
-  },
-  {
-    name: "Baghdad Science Journal",
-    publisher: "University of Baghdad",
-    field: "علوم عامة / علوم تطبيقية",
-    status: "تحتاج تحقق",
-    quartile: "غير مؤكد",
-    indexing: "Check Scopus / SCImago manually",
-    note: "أضف حالة التصنيف بعد التحقق من SCImago أو Scopus من المصدر الرسمي.",
-  },
-  {
-    name: "Iraqi Journal of Science",
-    publisher: "University of Baghdad",
-    field: "علوم صرفة وتطبيقية",
-    status: "تحتاج تحقق",
-    quartile: "غير مؤكد",
-    indexing: "Check Scopus / SCImago manually",
-    note: "يفضل التحقق من ISSN واسم المجلة قبل اعتماد الربع.",
-  },
-  {
-    name: "Journal of the College of Basic Education",
-    publisher: "University of Babylon",
-    field: "تربية وعلوم إنسانية",
-    status: "محلية",
-    quartile: "غير مؤكد",
-    indexing: "IASJ / local indexing",
-    note: "مثال لمجلة عراقية في التربية والعلوم الإنسانية؛ التصنيف العالمي يحتاج تحقق منفصل.",
-  },
-  {
-    name: "Sumer Journal of Legal Sciences",
-    publisher: "University of Sumer",
-    field: "قانون",
-    status: "محلية",
-    quartile: "غير مؤكد",
-    indexing: "IASJ listing",
-    note: "مجلة ظاهرة ضمن المجلات المضافة حديثاً في IASJ؛ تحقق من موقع المجلة قبل الإرسال.",
-  },
-  {
-    name: "Iraqi Journal of Environmental Sciences",
-    publisher: "Mustansiriyah University",
-    field: "علوم البيئة",
-    status: "محلية",
-    quartile: "غير مؤكد",
-    indexing: "IASJ listing",
-    note: "تحتاج فحص ISSN وحالة الفهرسة قبل اعتمادها للنشر الدولي.",
-  },
-];
+type IraqiJournalsData = {
+  journals: IraqiJournal[];
+  news: JournalNews[];
+  alerts: string[];
+};
 
-const journalNews: JournalNews[] = [
-  {
-    title: "IASJ بوابة أساسية للمجلات العراقية",
-    tag: "محلي",
-    description:
-      "استخدم IASJ كبداية للعثور على المجلات العراقية حسب المؤسسة والتخصص، ثم تحقق من التصنيف العالمي من SCImago أو Scopus.",
-  },
-  {
-    title: "لا تعتمد الربع بدون ISSN مطابق",
-    tag: "تحقق",
-    description:
-      "اسم المجلة وحده قد يسبب خطأ في المطابقة. الأفضل استخدام ISSN أو رابط SCImago الرسمي قبل اعتبار المجلة Q1/Q2/Q3/Q4.",
-  },
-  {
-    title: "انتبه من التشابه بين أسماء المجلات",
-    tag: "تنبيه",
-    description:
-      "بعض المجلات تحمل أسماء متشابهة عالمياً. لذلك يجب عدم الاعتماد على partial match وحده لتحديد التصنيف.",
-  },
-];
+async function loadIraqiJournalsData(): Promise<IraqiJournalsData> {
+  const filePath = path.join(process.cwd(), "data", "iraqi-journals.json");
+  const fileContent = await readFile(filePath, "utf8");
 
-const alerts = [
-  "لا تعتبر أي مجلة Q1 أو Q2 إلا بعد التحقق من SCImago أو Scopus.",
-  "تأكد من ISSN واسم الناشر وموقع المجلة قبل الإرسال.",
-  "تجنب المجلات التي لا توضّح هيئة التحرير أو رسوم النشر أو سياسة التحكيم.",
-  "وجود المجلة في بوابة محلية لا يعني بالضرورة أنها مفهرسة عالمياً.",
-];
+  return JSON.parse(fileContent) as IraqiJournalsData;
+}
 
 function getStatusClass(status: IraqiJournal["status"]) {
   if (status === "مصنفة") {
@@ -123,19 +52,25 @@ function getQuartileClass(quartile: IraqiJournal["quartile"]) {
   return "bg-slate-100 text-slate-600";
 }
 
-const classifiedCount = iraqiJournals.filter(
-  (journal) => journal.status === "مصنفة"
-).length;
+export default async function IraqiJournalsPage() {
+  const data = await loadIraqiJournalsData();
 
-const localCount = iraqiJournals.filter(
-  (journal) => journal.status === "محلية"
-).length;
+  const iraqiJournals = data.journals || [];
+  const journalNews = data.news || [];
+  const alerts = data.alerts || [];
 
-const needsCheckCount = iraqiJournals.filter(
-  (journal) => journal.status === "تحتاج تحقق"
-).length;
+  const classifiedCount = iraqiJournals.filter(
+    (journal) => journal.status === "مصنفة"
+  ).length;
 
-export default function IraqiJournalsPage() {
+  const localCount = iraqiJournals.filter(
+    (journal) => journal.status === "محلية"
+  ).length;
+
+  const needsCheckCount = iraqiJournals.filter(
+    (journal) => journal.status === "تحتاج تحقق"
+  ).length;
+
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-8" dir="rtl">
       <section className="mx-auto max-w-7xl">
@@ -275,7 +210,7 @@ export default function IraqiJournalsPage() {
             </div>
 
             <p className="rounded-full bg-slate-100 px-4 py-2 text-xs font-bold text-slate-600">
-              بيانات أولية قابلة للتحديث
+              البيانات تُقرأ من data/iraqi-journals.json
             </p>
           </div>
 
