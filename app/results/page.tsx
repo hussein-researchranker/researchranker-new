@@ -20,6 +20,7 @@ type Article = {
   publisher?: string;
   issn?: string;
   matchConfidence?: string;
+  source?: string;
   sourceUrl?: string;
   pubmedUrl?: string;
 };
@@ -35,22 +36,111 @@ function getInitialParam(name: string, fallback = "") {
   return new URLSearchParams(window.location.search).get(name) || fallback;
 }
 
+function extractYear(value: string) {
+  const match = cleanText(value).match(/\b(19|20)\d{2}\b/);
+  return match ? match[0] : "n.d.";
+}
+
+function doiUrl(doi: string) {
+  const cleanDoi = cleanText(doi);
+  return cleanDoi ? `https://doi.org/${cleanDoi}` : "";
+}
+
 function formatCitation(article: Article, style: CitationStyle, index: number) {
   const authors = cleanText(article.authors) || "Unknown author";
   const title = cleanText(article.title) || "Untitled article";
   const journal = cleanText(article.journal) || "Unknown journal";
-  const year = cleanText(article.pubdate) || "n.d.";
+  const pubdate = cleanText(article.pubdate) || "n.d.";
+  const year = extractYear(pubdate);
   const doi = cleanText(article.doi);
 
   if (style === "Vancouver") {
-    return `${index}. ${authors}. ${title}. ${journal}. ${year}.${doi ? ` doi: ${doi}` : ""}`;
+    return `${index}. ${authors}. ${title}. ${journal}. ${pubdate}.${
+      doi ? ` doi: ${doi}.` : ""
+    }`;
   }
 
   if (style === "APA") {
-    return `${authors}. (${year}). ${title}. ${journal}.${doi ? ` https://doi.org/${doi}` : ""}`;
+    return `${authors}. (${year}). ${title}. ${journal}.${
+      doi ? ` ${doiUrl(doi)}` : ""
+    }`;
   }
 
-  return `[${index}] ${authors}, "${title}," ${journal}, ${year}.${doi ? ` doi: ${doi}` : ""}`;
+  return `[${index}] ${authors}, "${title}," ${journal}, ${pubdate}.${
+    doi ? ` doi: ${doi}.` : ""
+  }`;
+}
+
+function isVerifiedQuartile(article: Article) {
+  const quartile = cleanText(article.quartile);
+  const confidence = cleanText(article.matchConfidence).toLowerCase();
+
+  return (
+    /^Q[1-4]$/.test(quartile) &&
+    (confidence.includes("issn exact match") ||
+      confidence.includes("journal title exact match") ||
+      confidence.includes("strict token match"))
+  );
+}
+
+function getQuartileBadgeClass(article: Article) {
+  const quartile = cleanText(article.quartile);
+
+  if (!isVerifiedQuartile(article)) {
+    return "border-slate-200 bg-slate-100 text-slate-600";
+  }
+
+  if (quartile === "Q1") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (quartile === "Q2") {
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  }
+
+  if (quartile === "Q3") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  if (quartile === "Q4") {
+    return "border-red-200 bg-red-50 text-red-700";
+  }
+
+  return "border-slate-200 bg-slate-100 text-slate-600";
+}
+
+function getQuartileLabel(article: Article) {
+  if (isVerifiedQuartile(article)) {
+    return `${article.quartile} - Verified`;
+  }
+
+  return "Not found - Check manually";
+}
+
+function getVerificationNote(article: Article) {
+  if (isVerifiedQuartile(article)) {
+    return "Verified through strict SCImago matching.";
+  }
+
+  if (article.matchConfidence?.includes("OpenAlex")) {
+    return "Source metadata improved by OpenAlex, but SCImago quartile was not safely verified.";
+  }
+
+  if (article.matchConfidence?.includes("Crossref")) {
+    return "Crossref metadata available, but SCImago quartile was not safely verified.";
+  }
+
+  return "Quartile could not be safely verified from the available metadata.";
+}
+
+function getArticleSourceLabel(article: Article) {
+  const source = cleanText(article.source);
+
+  if (source) return source;
+
+  if (article.pmid) return "PubMed";
+
+  return "Crossref / Global Search";
 }
 
 export default function ResultsPage() {
@@ -62,18 +152,24 @@ export default function ResultsPage() {
   const [message, setMessage] = useState("");
   const [citationStyle, setCitationStyle] = useState<CitationStyle>("IEEE");
   const [summaries, setSummaries] = useState<Record<string, string>>({});
-  const [summaryLoading, setSummaryLoading] = useState<Record<string, boolean>>({});
+  const [summaryLoading, setSummaryLoading] = useState<Record<string, boolean>>(
+    {}
+  );
   const [savingIds, setSavingIds] = useState<Record<string, boolean>>({});
 
-const filteredArticles = useMemo(() => {
-  if (quartile === "All") return articles;
+  const filteredArticles = useMemo(() => {
+    if (quartile === "All") return articles;
 
-  return articles.filter((article) => {
-    const articleQuartile = cleanText(article.quartile);
+    return articles.filter((article) => {
+      const articleQuartile = cleanText(article.quartile);
 
-    return articleQuartile === quartile || articleQuartile === "Not found";
-  });
-}, [articles, quartile]);
+      return articleQuartile === quartile || articleQuartile === "Not found";
+    });
+  }, [articles, quartile]);
+
+  const verifiedCount = useMemo(() => {
+    return filteredArticles.filter(isVerifiedQuartile).length;
+  }, [filteredArticles]);
 
   useEffect(() => {
     const q = getInitialParam("q", "");
@@ -142,10 +238,10 @@ const filteredArticles = useMemo(() => {
   }
 
   async function saveArticle(article: Article) {
-    const articleId = article.pmid || article.title || "";
+    const articleId = article.doi || article.pmid || article.title || "";
 
     if (!articleId) {
-      setMessage("لا يمكن حفظ مصدر بدون PMID أو عنوان.");
+      setMessage("لا يمكن حفظ مصدر بدون DOI أو PMID أو عنوان.");
       return;
     }
 
@@ -158,6 +254,7 @@ const filteredArticles = useMemo(() => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          id: article.id || article.doi || article.pmid || article.title,
           pmid: article.pmid,
           title: article.title,
           journal: article.journal,
@@ -172,7 +269,7 @@ const filteredArticles = useMemo(() => {
           publisher: article.publisher,
           issn: article.issn,
           matchConfidence: article.matchConfidence,
-          source: "PubMed",
+          source: article.source || "Crossref",
           sourceUrl: article.sourceUrl || article.pubmedUrl,
           pubmedUrl: article.pubmedUrl || article.sourceUrl,
         }),
@@ -187,16 +284,14 @@ const filteredArticles = useMemo(() => {
       setMessage("تم حفظ المصدر في My Library.");
     } catch (error) {
       console.error("Save result article error:", error);
-      setMessage(
-        error instanceof Error ? error.message : "فشل حفظ المصدر."
-      );
+      setMessage(error instanceof Error ? error.message : "فشل حفظ المصدر.");
     } finally {
       setSavingIds((current) => ({ ...current, [articleId]: false }));
     }
   }
 
   async function summarizeArticle(article: Article) {
-    const articleId = article.pmid || article.title || "";
+    const articleId = article.doi || article.pmid || article.title || "";
 
     if (!articleId) return;
 
@@ -235,9 +330,7 @@ const filteredArticles = useMemo(() => {
       setSummaries((current) => ({ ...current, [articleId]: text }));
     } catch (error) {
       console.error("AI summary error:", error);
-      setMessage(
-        error instanceof Error ? error.message : "فشل التلخيص الذكي."
-      );
+      setMessage(error instanceof Error ? error.message : "فشل التلخيص الذكي.");
     } finally {
       setSummaryLoading((current) => ({ ...current, [articleId]: false }));
     }
@@ -255,6 +348,7 @@ const filteredArticles = useMemo(() => {
               </h1>
               <p className="mt-3 text-sm leading-7 text-slate-600">
                 النتائج مفلترة حسب الربع المختار والتخصص القادم من صفحة البحث.
+                تظهر حالة التحقق من تصنيف المجلة بوضوح لتجنب التصنيف المضلل.
               </p>
             </div>
 
@@ -277,14 +371,16 @@ const filteredArticles = useMemo(() => {
         </header>
 
         <section className="mb-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-5">
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-xs font-bold text-slate-500">موضوع البحث</p>
-              <p className="mt-1 font-bold text-slate-900">{query || "غير محدد"}</p>
+              <p className="mt-1 font-bold text-slate-900">
+                {query || "غير محدد"}
+              </p>
             </div>
 
             <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-xs font-bold text-slate-500">الربع</p>
+              <p className="text-xs font-bold text-slate-500">الربع المطلوب</p>
               <p className="mt-1 font-bold text-slate-900">{quartile}</p>
             </div>
 
@@ -299,6 +395,22 @@ const filteredArticles = useMemo(() => {
                 {filteredArticles.length}
               </p>
             </div>
+
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-xs font-bold text-slate-500">
+                تصنيف موثّق
+              </p>
+              <p className="mt-1 font-bold text-slate-900">
+                {verifiedCount}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-7 text-amber-900">
+            <strong>ملاحظة علمية:</strong> ظهور عبارة{" "}
+            <strong>Not found - Check manually</strong> لا يعني أن المصدر غير
+            مفيد، بل يعني أن النظام لم يستطع تأكيد الربع بأمان من بيانات
+            Crossref/OpenAlex وملف SCImago المحلي.
           </div>
 
           <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -336,7 +448,9 @@ const filteredArticles = useMemo(() => {
         ) : (
           <div className="space-y-5">
             {filteredArticles.map((article, index) => {
-              const articleId = article.pmid || article.title || String(index);
+              const articleId =
+                article.doi || article.pmid || article.title || String(index);
+
               const sourceUrl =
                 article.sourceUrl ||
                 article.pubmedUrl ||
@@ -352,36 +466,84 @@ const filteredArticles = useMemo(() => {
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
                       <p className="text-xs font-bold uppercase tracking-wide text-blue-700">
-                        PubMed {article.pmid ? `• PMID: ${article.pmid}` : ""}
+                        {getArticleSourceLabel(article)}
+                        {article.pmid ? ` • PMID: ${article.pmid}` : ""}
+                        {article.doi ? ` • DOI: ${article.doi}` : ""}
                       </p>
                       <h2 className="mt-2 text-xl font-black leading-8 text-slate-900">
                         {article.title || "Untitled article"}
                       </h2>
                     </div>
 
-                    <span className="rounded-full bg-blue-50 px-4 py-2 text-sm font-black text-blue-700">
-                      {article.quartile || "Not found"}
-                    </span>
+                    <div className="flex flex-col items-start gap-2 md:items-end">
+                      <span
+                        className={`rounded-full border px-4 py-2 text-sm font-black ${getQuartileBadgeClass(
+                          article
+                        )}`}
+                      >
+                        {getQuartileLabel(article)}
+                      </span>
+
+                      <span className="max-w-xs text-xs font-bold leading-5 text-slate-500 md:text-left">
+                        {getVerificationNote(article)}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="mt-4 grid gap-3 text-sm text-slate-600 md:grid-cols-2">
                     <p>
-                      <span className="font-bold text-slate-800">Journal:</span>{" "}
+                      <span className="font-bold text-slate-800">
+                        Journal:
+                      </span>{" "}
                       {article.journal || "Unknown"}
                     </p>
+
                     <p>
                       <span className="font-bold text-slate-800">Date:</span>{" "}
                       {article.pubdate || "Unknown"}
                     </p>
+
                     <p>
                       <span className="font-bold text-slate-800">DOI:</span>{" "}
                       {article.doi || "Not available"}
                     </p>
+
                     <p>
                       <span className="font-bold text-slate-800">
                         Indexing:
                       </span>{" "}
                       {article.indexingStatus || "Unknown / check manually"}
+                    </p>
+
+                    <p>
+                      <span className="font-bold text-slate-800">
+                        Match confidence:
+                      </span>{" "}
+                      {article.matchConfidence || "Not available"}
+                    </p>
+
+                    <p>
+                      <span className="font-bold text-slate-800">ISSN:</span>{" "}
+                      {article.issn || "Not available"}
+                    </p>
+
+                    <p>
+                      <span className="font-bold text-slate-800">SJR:</span>{" "}
+                      {article.sjr || "Not available"}
+                    </p>
+
+                    <p>
+                      <span className="font-bold text-slate-800">
+                        H-index:
+                      </span>{" "}
+                      {article.hIndex || "Not available"}
+                    </p>
+
+                    <p className="md:col-span-2">
+                      <span className="font-bold text-slate-800">
+                        Publisher:
+                      </span>{" "}
+                      {article.publisher || "Not available"}
                     </p>
                   </div>
 
@@ -406,7 +568,9 @@ const filteredArticles = useMemo(() => {
                       disabled={savingIds[articleId]}
                       className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 disabled:opacity-60"
                     >
-                      {savingIds[articleId] ? "جاري الحفظ..." : "حفظ في المكتبة"}
+                      {savingIds[articleId]
+                        ? "جاري الحفظ..."
+                        : "حفظ في المكتبة"}
                     </button>
 
                     <button
