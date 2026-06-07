@@ -18,7 +18,7 @@ export default function SearchWizard() {
       quartile,
     });
 
-    window.location.href = `/?${params.toString()}`;
+    window.location.href = `/advanced-search?${params.toString()}`;
   }
 
   return (
