@@ -114,8 +114,10 @@ export default function SearchWizard() {
                 <button
                   key={item}
                   type="button"
-                  onClick={() => setQuartile(item)}
-                  className={`rounded-2xl border px-5 py-6 text-xl font-black transition ${
+onClick={() => {
+  setQuartile(item);
+  setStep(2);
+}}                  className={`rounded-2xl border px-5 py-6 text-xl font-black transition ${
                     quartile === item
                       ? "border-blue-600 bg-blue-600 text-white"
                       : "border-slate-200 bg-slate-50 text-slate-800 hover:bg-slate-100"
@@ -126,14 +128,7 @@ export default function SearchWizard() {
               ))}
             </div>
 
-            <button
-              type="button"
-              onClick={() => setStep(2)}
-              disabled={!quartile}
-              className="mt-8 w-full rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white disabled:opacity-50"
-            >
-              التالي
-            </button>
+            
           </div>
         )}
 
@@ -151,8 +146,10 @@ export default function SearchWizard() {
                 <button
                   key={option.value}
                   type="button"
-                  onClick={() => setField(option.value)}
-                  className={`rounded-2xl border p-4 text-right transition ${
+onClick={() => {
+  setField(option.value);
+  setStep(3);
+}}                  className={`rounded-2xl border p-4 text-right transition ${
                     field === option.value
                       ? "border-blue-600 bg-blue-50"
                       : "border-slate-200 bg-slate-50 hover:bg-slate-100"
@@ -164,23 +161,15 @@ export default function SearchWizard() {
               ))}
             </div>
 
-            <div className="mt-8 flex gap-3">
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="w-1/3 rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700"
-              >
-                رجوع
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setStep(3)}
-                className="w-2/3 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white"
-              >
-                التالي
-              </button>
-            </div>
+           <div className="mt-8">
+  <button
+    type="button"
+    onClick={() => setStep(1)}
+    className="w-full rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700"
+  >
+    رجوع
+  </button>
+</div>
           </div>
         )}
 
