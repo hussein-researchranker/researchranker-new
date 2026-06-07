@@ -174,10 +174,724 @@ function parseYear(value: string | null, fallback: number) {
 function looksLikeDoi(value: string) {
   return /^10\.\d{4,9}\/\S+$/i.test(value.trim());
 }
+function normalizeArabicText(value: string) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/[ًٌٍَُِّْـ]/g, "")
+    .replace(/[إأآا]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي")
+    .replace(/گ/g, "ك")
+    .replace(/چ/g, "ج")
+    .replace(/پ/g, "ب")
+    .replace(/ژ/g, "ز")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
+function hasArabic(value: string) {
+  return /[\u0600-\u06FF]/.test(value);
+}
+
+type ArabicExpansionGroup = {
+  keys: string[];
+  terms: string[];
+};
+
+const arabicExpansionGroups: ArabicExpansionGroup[] = [
+  {
+    keys: ["غسيل الكلى", "غسل الكلى", "الديلزه", "ديالز", "ديلزة", "غسيل كلوي", "الفشل الكلوي", "قصور الكلى", "امراض الكلى", "الكلى"],
+    terms: [
+      "hemodialysis",
+      "dialysis",
+      "renal dialysis",
+      "chronic kidney disease",
+      "CKD",
+      "end stage renal disease",
+      "ESRD",
+      "renal failure",
+      "kidney failure",
+      "renal replacement therapy",
+      "uremia",
+      "uremic toxins",
+    ],
+  },
+  {
+    keys: ["البريتون", "غسيل بريتوني", "الغسيل البريتوني", "الديلزه البريتونيه"],
+    terms: [
+      "peritoneal dialysis",
+      "continuous ambulatory peritoneal dialysis",
+      "CAPD",
+      "automated peritoneal dialysis",
+      "peritoneal membrane",
+    ],
+  },
+  {
+    keys: ["زراعة الكلى", "زرع الكلى", "الكلية المزروعة", "زرع كلية"],
+    terms: [
+      "kidney transplantation",
+      "renal transplantation",
+      "graft survival",
+      "transplant rejection",
+      "immunosuppression",
+    ],
+  },
+  {
+    keys: ["سكري", "السكري", "مرض السكري", "داء السكري", "السكر", "سكر الدم"],
+    terms: [
+      "diabetes mellitus",
+      "type 2 diabetes",
+      "T2DM",
+      "type 1 diabetes",
+      "hyperglycemia",
+      "blood glucose",
+      "insulin resistance",
+      "glycemic control",
+      "HbA1c",
+    ],
+  },
+  {
+    keys: ["ما قبل السكري", "قبل السكري", "مقدمات السكري", "اختلال السكر"],
+    terms: [
+      "prediabetes",
+      "impaired fasting glucose",
+      "impaired glucose tolerance",
+      "insulin resistance",
+      "metabolic syndrome",
+    ],
+  },
+  {
+    keys: ["السمنه", "السمنة", "زيادة الوزن", "البدانه"],
+    terms: [
+      "obesity",
+      "overweight",
+      "body mass index",
+      "BMI",
+      "adiposity",
+      "visceral fat",
+      "metabolic syndrome",
+    ],
+  },
+  {
+    keys: ["الدهون", "دهون الدم", "الكولسترول", "الكوليسترول", "الشحوم", "بروفايل الدهون"],
+    terms: [
+      "lipid profile",
+      "cholesterol",
+      "triglycerides",
+      "HDL cholesterol",
+      "LDL cholesterol",
+      "VLDL",
+      "dyslipidemia",
+      "atherogenic index",
+    ],
+  },
+  {
+    keys: ["الكبد", "وظائف الكبد", "التهاب الكبد", "الكبد الدهني", "اليرقان"],
+    terms: [
+      "liver function tests",
+      "LFT",
+      "ALT",
+      "AST",
+      "bilirubin",
+      "albumin",
+      "fatty liver disease",
+      "NAFLD",
+      "hepatitis",
+      "jaundice",
+    ],
+  },
+  {
+    keys: ["القلب", "امراض القلب", "الاوعيه الدمويه", "الشرايين", "جلطه", "احتشاء"],
+    terms: [
+      "cardiovascular disease",
+      "heart disease",
+      "coronary artery disease",
+      "myocardial infarction",
+      "atherosclerosis",
+      "vascular disease",
+      "cardiac biomarkers",
+    ],
+  },
+  {
+    keys: ["ضغط الدم", "ارتفاع الضغط", "الضغط"],
+    terms: [
+      "hypertension",
+      "blood pressure",
+      "systolic blood pressure",
+      "diastolic blood pressure",
+      "cardiovascular risk",
+    ],
+  },
+  {
+    keys: ["الغده الدرقيه", "الغدة الدرقية", "الدرقيه", "الثيروكسين", "خمول الغده"],
+    terms: [
+      "thyroid gland",
+      "hypothyroidism",
+      "hyperthyroidism",
+      "TSH",
+      "free T4",
+      "thyroxine",
+      "levothyroxine",
+      "thyroid hormones",
+    ],
+  },
+  {
+    keys: ["العظام", "هشاشه العظام", "هشاشة العظام", "الكسر", "الكسور", "فيتامين د", "الكالسيتونين", "الغده جار الدرقيه"],
+    terms: [
+      "bone mineral density",
+      "osteoporosis",
+      "fracture risk",
+      "bone fracture",
+      "vitamin D",
+      "calcitonin",
+      "parathyroid hormone",
+      "PTH",
+      "CKD-MBD",
+      "mineral bone disorder",
+    ],
+  },
+  {
+    keys: ["الزهايمر", "الخرف", "الذاكره", "التدهور المعرفي"],
+    terms: [
+      "Alzheimer disease",
+      "dementia",
+      "cognitive decline",
+      "memory impairment",
+      "neurodegeneration",
+      "amyloid beta",
+      "tau protein",
+    ],
+  },
+  {
+    keys: ["التوحد", "طيف التوحد", "اعراض التوحد", "الاطفال التوحد", "التوحد عند الاطفال"],
+    terms: [
+      "autism",
+      "autism spectrum disorder",
+      "ASD",
+      "autistic symptoms",
+      "children",
+      "neurodevelopmental disorder",
+      "behavioral symptoms",
+      "childhood autism",
+    ],
+  },
+  {
+    keys: ["الرصاص", "تسمم الرصاص", "رصاص الدم", "المعادن الثقيله", "المعادن الثقيلة"],
+    terms: [
+      "lead poisoning",
+      "blood lead level",
+      "BLL",
+      "heavy metals",
+      "lead exposure",
+      "environmental lead",
+      "neurotoxicity",
+      "childhood lead exposure",
+    ],
+  },
+  {
+    keys: ["الكادميوم", "الزئبق", "الزرنيخ", "النحاس", "الزنك", "العناصر النادره", "العناصر الزهيده"],
+    terms: [
+      "cadmium",
+      "mercury",
+      "arsenic",
+      "copper",
+      "zinc",
+      "trace elements",
+      "toxic metals",
+      "environmental toxicology",
+      "bioaccumulation",
+    ],
+  },
+  {
+    keys: ["الاجهاد التاكسدي", "الاجهاد التأكسدي", "الاكسده", "مضادات الاكسده", "الجذور الحره"],
+    terms: [
+      "oxidative stress",
+      "antioxidant",
+      "reactive oxygen species",
+      "ROS",
+      "free radicals",
+      "MDA",
+      "malondialdehyde",
+      "TAS",
+      "SOD",
+      "CAT",
+      "GPx",
+    ],
+  },
+  {
+    keys: ["الالتهاب", "التهابات", "السيتوكينات", "انترلوكين", "انترلوكين 6"],
+    terms: [
+      "inflammation",
+      "inflammatory biomarkers",
+      "cytokines",
+      "interleukin",
+      "IL-6",
+      "TNF alpha",
+      "CRP",
+      "systemic inflammation",
+    ],
+  },
+  {
+    keys: ["المناعه", "المناعة", "امراض مناعيه", "المناعه الذاتيه"],
+    terms: [
+      "immune system",
+      "immunity",
+      "autoimmune disease",
+      "autoimmunity",
+      "immune response",
+      "immunology",
+    ],
+  },
+  {
+    keys: ["السرطان", "اورام", "الاورام", "سرطان الثدي", "سرطان القولون", "سرطان الرئه"],
+    terms: [
+      "cancer",
+      "tumor",
+      "neoplasm",
+      "oncology",
+      "breast cancer",
+      "colorectal cancer",
+      "lung cancer",
+      "cancer biomarkers",
+      "carcinogenesis",
+    ],
+  },
+  {
+    keys: ["فقر الدم", "الانيميا", "الهيموغلوبين", "نقص الحديد"],
+    terms: [
+      "anemia",
+      "hemoglobin",
+      "iron deficiency",
+      "ferritin",
+      "transferrin",
+      "erythropoietin",
+    ],
+  },
+  {
+    keys: ["البكتريا", "البكتيريا", "جراثيم", "الميكروبات", "الميكروبيوم", "الاحياء المجهريه"],
+    terms: [
+      "bacteria",
+      "bacterial infection",
+      "microbiology",
+      "microbiome",
+      "microbial",
+      "pathogens",
+      "antimicrobial resistance",
+    ],
+  },
+  {
+    keys: ["الفايروس", "الفيروس", "الفيروسات", "كورونا", "كوفيد"],
+    terms: [
+      "virus",
+      "viral infection",
+      "virology",
+      "COVID-19",
+      "SARS-CoV-2",
+      "coronavirus",
+      "viral disease",
+    ],
+  },
+  {
+    keys: ["المضادات الحيويه", "المضاد الحيوي", "مقاومة المضادات", "مقاومه المضادات"],
+    terms: [
+      "antibiotics",
+      "antimicrobial resistance",
+      "antibiotic resistance",
+      "multidrug resistance",
+      "bacterial resistance",
+    ],
+  },
+  {
+    keys: ["البروتين", "البروتينات", "الانزيم", "الانزيمات", "الايض", "التمثيل الغذائي"],
+    terms: [
+      "protein",
+      "proteins",
+      "enzyme",
+      "enzymes",
+      "metabolism",
+      "metabolic pathway",
+      "biochemical pathway",
+      "protein structure",
+      "enzyme kinetics",
+    ],
+  },
+  {
+    keys: ["الجينات", "الوراثه", "الوراثة", "دي ان اي", "الدنا", "الحمض النووي", "التعبير الجيني"],
+    terms: [
+      "genes",
+      "genetics",
+      "genomics",
+      "DNA",
+      "RNA",
+      "gene expression",
+      "genetic variation",
+      "mutation",
+      "polymorphism",
+    ],
+  },
+  {
+    keys: ["الخلايا", "الخليه", "الخلية", "موت الخلايا", "الاستماته"],
+    terms: [
+      "cell",
+      "cells",
+      "cell biology",
+      "apoptosis",
+      "cell death",
+      "cell signaling",
+      "cell proliferation",
+    ],
+  },
+  {
+    keys: ["الماء", "المياه", "تلوث المياه", "الانهار", "دجله", "الفرات", "شط العرب"],
+    terms: [
+      "water pollution",
+      "water quality",
+      "rivers",
+      "Tigris River",
+      "Euphrates River",
+      "Shatt Al-Arab",
+      "aquatic environment",
+      "environmental contamination",
+    ],
+  },
+  {
+    keys: ["اللدائن الدقيقه", "البلاستيك الدقيق", "الميكروبلاستك", "الميكروبلاستيك", "جسيمات البلاستيك"],
+    terms: [
+      "microplastics",
+      "plastic particles",
+      "nanoplastics",
+      "microplastic exposure",
+      "environmental microplastics",
+      "endocrine disruption",
+      "oxidative stress",
+    ],
+  },
+  {
+    keys: ["التلوث", "تلوث الهواء", "تلوث البيئه", "الملوثات", "المخاطر البيئيه"],
+    terms: [
+      "pollution",
+      "air pollution",
+      "environmental pollution",
+      "environmental risk",
+      "contaminants",
+      "toxicology",
+      "public health",
+    ],
+  },
+  {
+    keys: ["النبات", "النباتات", "الزراعه", "المحاصيل", "التربه", "الري"],
+    terms: [
+      "plants",
+      "plant science",
+      "agriculture",
+      "crops",
+      "soil",
+      "irrigation",
+      "crop yield",
+      "plant physiology",
+    ],
+  },
+  {
+    keys: ["الذكاء الاصطناعي", "ذكاء اصطناعي", "تعلم الاله", "تعلم الآلة", "التعلم العميق", "الشبكات العصبيه", "الشبكات العصبية"],
+    terms: [
+      "artificial intelligence",
+      "AI",
+      "machine learning",
+      "deep learning",
+      "neural network",
+      "computer vision",
+      "natural language processing",
+      "data science",
+      "algorithm",
+    ],
+  },
+  {
+    keys: ["الامن السيبراني", "الأمن السيبراني", "امن المعلومات", "اختراق", "الهجمات الالكترونيه"],
+    terms: [
+      "cybersecurity",
+      "information security",
+      "cyber attack",
+      "intrusion detection",
+      "malware detection",
+      "network security",
+      "threat detection",
+    ],
+  },
+  {
+    keys: ["الحاسوب", "الحاسبات", "علوم الحاسوب", "البرمجه", "البرمجة", "البيانات", "الخوارزميات"],
+    terms: [
+      "computer science",
+      "programming",
+      "software engineering",
+      "data mining",
+      "big data",
+      "algorithms",
+      "database",
+      "information systems",
+    ],
+  },
+  {
+    keys: ["الشبكات", "انترنت الاشياء", "انترنت الأشياء", "الحوسبه السحابيه", "الحوسبة السحابية"],
+    terms: [
+      "computer networks",
+      "internet of things",
+      "IoT",
+      "cloud computing",
+      "edge computing",
+      "wireless networks",
+      "network protocols",
+    ],
+  },
+  {
+    keys: ["الهندسه", "الهندسة", "كهرباء", "ميكانيك", "مدني", "مواد"],
+    terms: [
+      "engineering",
+      "electrical engineering",
+      "mechanical engineering",
+      "civil engineering",
+      "materials engineering",
+      "optimization",
+      "design",
+    ],
+  },
+  {
+    keys: ["الفيزياء", "فيزياء", "الكم", "الضوء", "البصريات", "الحراره"],
+    terms: [
+      "physics",
+      "quantum physics",
+      "optics",
+      "thermodynamics",
+      "mechanics",
+      "electromagnetism",
+      "materials physics",
+    ],
+  },
+  {
+    keys: ["الكيمياء", "كيمياء", "التحليل الكيميائي", "المركبات", "الجزيئات"],
+    terms: [
+      "chemistry",
+      "analytical chemistry",
+      "organic chemistry",
+      "inorganic chemistry",
+      "chemical compounds",
+      "molecules",
+      "synthesis",
+    ],
+  },
+  {
+    keys: ["الكيمياء الحياتيه", "الكيمياء الحيويه", "الكيمياء الحياتية", "الكيمياء الحيوية", "بايوكيمياء"],
+    terms: [
+      "biochemistry",
+      "biochemical",
+      "clinical biochemistry",
+      "molecular biology",
+      "enzymes",
+      "proteins",
+      "metabolism",
+      "biomarkers",
+    ],
+  },
+  {
+    keys: ["التربيه", "التربية", "التعليم", "التعلم", "طرائق التدريس", "طرق التدريس", "المناهج", "الطلاب", "الطلبه"],
+    terms: [
+      "education",
+      "teaching",
+      "learning",
+      "curriculum",
+      "students",
+      "pedagogy",
+      "teaching methods",
+      "instructional strategy",
+      "classroom",
+    ],
+  },
+  {
+    keys: ["الذكاءات المتعدده", "الذكاءات المتعددة", "جاردنر"],
+    terms: [
+      "multiple intelligences",
+      "Gardner theory",
+      "teaching strategy",
+      "educational strategy",
+      "student skills",
+      "oral expression",
+    ],
+  },
+  {
+    keys: ["التعبير الشفوي", "المهارات الشفويه", "المهارات الشفوية", "اللغة العربية", "اللغه العربيه"],
+    terms: [
+      "oral expression",
+      "speaking skills",
+      "oral communication",
+      "Arabic language",
+      "language teaching",
+      "language learning",
+    ],
+  },
+  {
+    keys: ["علم النفس", "النفس", "السلوك", "الادراك", "الصحه النفسيه"],
+    terms: [
+      "psychology",
+      "behavior",
+      "cognition",
+      "mental health",
+      "psychological",
+      "emotion",
+      "personality",
+    ],
+  },
+  {
+    keys: ["الاجتماع", "علم الاجتماع", "المجتمع", "الثقافه", "الثقافة"],
+    terms: [
+      "sociology",
+      "social science",
+      "society",
+      "community",
+      "culture",
+      "social behavior",
+    ],
+  },
+  {
+    keys: ["الاداره", "الإدارة", "الاعمال", "الأعمال", "القياده", "التسويق"],
+    terms: [
+      "management",
+      "business",
+      "leadership",
+      "marketing",
+      "organization",
+      "human resources",
+      "strategic management",
+    ],
+  },
+  {
+    keys: ["الاقتصاد", "اقتصاد", "التمويل", "السوق", "التجاره", "التجارة"],
+    terms: [
+      "economics",
+      "finance",
+      "market",
+      "trade",
+      "economic development",
+      "investment",
+      "financial management",
+    ],
+  },
+  {
+    keys: ["القانون", "قانون", "تشريع", "التشريعات", "السياسات", "العداله"],
+    terms: [
+      "law",
+      "legal",
+      "legislation",
+      "regulation",
+      "policy",
+      "justice",
+      "legal studies",
+    ],
+  },
+  {
+    keys: ["الادب", "الأدب", "الشعر", "الروايه", "الرواية", "النقد", "النصوص"],
+    terms: [
+      "literature",
+      "literary",
+      "poetry",
+      "novel",
+      "narrative",
+      "literary criticism",
+      "text analysis",
+    ],
+  },
+  {
+    keys: ["اللسانيات", "اللغه", "اللغة", "النحو", "الصرف", "الدلاله", "الخطاب"],
+    terms: [
+      "linguistics",
+      "language",
+      "syntax",
+      "semantics",
+      "phonology",
+      "discourse analysis",
+      "morphology",
+    ],
+  },
+  {
+    keys: ["التاريخ", "حضاره", "حضارة", "تراث", "ارشيف", "الاثار"],
+    terms: [
+      "history",
+      "historical",
+      "civilization",
+      "heritage",
+      "archive",
+      "archaeology",
+      "cultural heritage",
+    ],
+  },
+  {
+    keys: ["الجغرافية", "الجغرافيا", "خرائط", "نظم المعلومات الجغرافيه", "المكان", "المكاني"],
+    terms: [
+      "geography",
+      "geographic",
+      "GIS",
+      "spatial analysis",
+      "urban",
+      "regional",
+      "mapping",
+    ],
+  },
+];
+
+function enhanceArabicQuery(query: string, field: string) {
+  const originalQuery = cleanText(query);
+
+  if (!hasArabic(originalQuery)) {
+    return originalQuery;
+  }
+
+  const normalizedQuery = normalizeArabicText(originalQuery);
+  const expandedTerms = new Set<string>();
+
+  expandedTerms.add(originalQuery);
+
+  for (const group of arabicExpansionGroups) {
+    const hasMatch = group.keys.some((key) =>
+      normalizedQuery.includes(normalizeArabicText(key))
+    );
+
+    if (hasMatch) {
+      group.terms.forEach((term) => expandedTerms.add(term));
+    }
+  }
+
+  const fieldFallbackTerms: Record<string, string[]> = {
+    medicine: ["medicine", "clinical", "patient", "disease", "healthcare"],
+    "life-sciences": ["biology", "cell biology", "molecular biology", "genetics"],
+    biochemistry: ["biochemistry", "biochemical", "enzymes", "proteins", "metabolism", "biomarkers"],
+    chemistry: ["chemistry", "chemical", "analytical chemistry", "molecules"],
+    physics: ["physics", "quantum", "optics", "thermodynamics"],
+    "computer-science": ["computer science", "artificial intelligence", "machine learning", "software"],
+    engineering: ["engineering", "optimization", "design", "materials"],
+    mathematics: ["mathematics", "statistics", "modeling", "probability"],
+    "environmental-science": ["environment", "pollution", "sustainability", "toxicology"],
+    agriculture: ["agriculture", "crop", "soil", "plant"],
+    education: ["education", "teaching", "learning", "students", "curriculum"],
+    psychology: ["psychology", "behavior", "cognition", "mental health"],
+    "social-sciences": ["social science", "sociology", "society", "culture"],
+    business: ["business", "management", "marketing", "leadership"],
+    economics: ["economics", "finance", "market", "trade"],
+    law: ["law", "legal", "legislation", "policy"],
+    "arts-humanities": ["humanities", "arts", "culture", "philosophy"],
+    linguistics: ["linguistics", "language", "discourse", "syntax"],
+    literature: ["literature", "literary", "poetry", "novel"],
+    history: ["history", "historical", "heritage", "archive"],
+    geography: ["geography", "GIS", "spatial", "regional"],
+  };
+
+  const fallback = fieldFallbackTerms[field] || [];
+
+  fallback.forEach((term) => expandedTerms.add(term));
+
+  return Array.from(expandedTerms).join(" ");
+}
 function buildFieldQuery(query: string, field: string) {
-  const cleanQuery = cleanText(query);
-
+const cleanQuery = enhanceArabicQuery(query, field);
   if (!cleanQuery || field === "all") {
     return cleanQuery;
   }
