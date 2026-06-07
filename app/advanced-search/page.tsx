@@ -457,8 +457,17 @@ function formatRIS(article: Article) {
 
   return lines.filter(Boolean).join("\n");
 }
+function getUrlSearchParam(name: string, fallback = "") {
+  if (typeof window === "undefined") {
+    return fallback;
+  }
 
+  return new URLSearchParams(window.location.search).get(name) || fallback;
+}
 export default function Home() {
+    const initialQueryFromUrl = getUrlSearchParam("q", "");
+  const initialQuartileFromUrl = getUrlSearchParam("quartile", "All");
+  const initialFieldFromUrl = getUrlSearchParam("field", "all");
   const { isLoaded, isSignedIn } = useUser();
 
   const [language, setLanguage] = useState<Language>("en");
@@ -468,7 +477,7 @@ export default function Home() {
   const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(true);
 
-const [query, setQuery] = useState("");
+const [query, setQuery] = useState(initialQueryFromUrl);
 const [fromYear, setFromYear] = useState("1990");
 const [toYear, setToYear] = useState("2026");
 const [maxResults, setMaxResults] = useState("50");
@@ -484,7 +493,10 @@ const [showLibrary, setShowLibrary] = useState(false);
   const [searchMessage, setSearchMessage] = useState("");
 
 const [citationStyle, setCitationStyle] = useState<CitationStyle>("IEEE");
-const [quartileFilter, setQuartileFilter] = useState<QuartileFilter>("All");
+const [quartileFilter, setQuartileFilter] = useState<QuartileFilter>(
+  initialQuartileFromUrl as QuartileFilter
+);
+const [fieldFilter, setFieldFilter] = useState(initialFieldFromUrl);
 const [doiFilter, setDoiFilter] = useState<DoiFilter>("All");
 const [journalFilter, setJournalFilter] = useState("");
 const [matchConfidenceFilter, setMatchConfidenceFilter] =
@@ -1170,6 +1182,7 @@ addSearchToHistory(cleanQuery);
         fromYear,
         toYear,
         maxResults,
+        field: fieldFilter,
 
       });
 
