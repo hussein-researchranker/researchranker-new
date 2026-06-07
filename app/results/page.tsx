@@ -65,10 +65,15 @@ export default function ResultsPage() {
   const [summaryLoading, setSummaryLoading] = useState<Record<string, boolean>>({});
   const [savingIds, setSavingIds] = useState<Record<string, boolean>>({});
 
-  const filteredArticles = useMemo(() => {
-    if (quartile === "All") return articles;
-    return articles.filter((article) => cleanText(article.quartile) === quartile);
-  }, [articles, quartile]);
+const filteredArticles = useMemo(() => {
+  if (quartile === "All") return articles;
+
+  return articles.filter((article) => {
+    const articleQuartile = cleanText(article.quartile);
+
+    return articleQuartile === quartile || articleQuartile === "Not found";
+  });
+}, [articles, quartile]);
 
   useEffect(() => {
     const q = getInitialParam("q", "");
