@@ -98,7 +98,7 @@ export default function ResultsPage() {
           field: selectedField,
         });
 
-        const response = await fetch(`/api/search?${params.toString()}`);
+        const response = await fetch(`/api/global-search?${params.toString()}`);
         const data = await response.json();
 
         if (!response.ok) {
