@@ -1,5 +1,8 @@
 import path from "path";
 import { readFile } from "fs/promises";
+
+export const runtime = "nodejs";
+
 type GlobalArticle = {
   id: string;
   pmid?: string;
@@ -20,9 +23,11 @@ type GlobalArticle = {
   issn: string;
   matchConfidence: string;
 };
+
 type ScimagoJournal = {
   title: string;
   normalizedTitle: string;
+  titleTokens: string[];
   issns: string[];
   quartile: string;
   sjr: string;
@@ -31,7 +36,6 @@ type ScimagoJournal = {
   categories: string;
 };
 
-let scimagoCache: ScimagoJournal[] | null = null;
 type CrossrefAuthor = {
   given?: string;
   family?: string;
@@ -47,6 +51,10 @@ type CrossrefWork = {
   "container-title"?: string[];
   publisher?: string;
   ISSN?: string[];
+  "issn-type"?: Array<{
+    value?: string;
+    type?: string;
+  }>;
   issued?: {
     "date-parts"?: number[][];
   };
@@ -58,14 +66,27 @@ type CrossrefWork = {
   subject?: string[];
 };
 
-type CrossrefResponse = {
+type CrossrefListResponse = {
   message?: {
     items?: CrossrefWork[];
   };
 };
 
+type CrossrefSingleResponse = {
+  message?: CrossrefWork;
+};
+
+let scimagoCache: ScimagoJournal[] | null = null;
+
 function cleanText(value: unknown) {
   return String(value ?? "")
+    .replace(/&amp;/g, "&")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -108,6 +129,20 @@ function getYearFromDate(value: string) {
   return match ? Number(match[0]) : null;
 }
 
+function parseYear(value: string | null, fallback: number) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+function looksLikeDoi(value: string) {
+  return /^10\.\d{4,9}\/\S+$/i.test(value.trim());
+}
+
 function buildFieldQuery(query: string, field: string) {
   const cleanQuery = cleanText(query);
 
@@ -127,7 +162,7 @@ function buildFieldQuery(query: string, field: string) {
     physics:
       "physics physical quantum optics mechanics thermodynamics",
     "computer-science":
-      "computer science artificial intelligence machine learning deep learning software algorithm data mining neural network",
+      "computer science artificial intelligence machine learning deep learning software algorithm data mining neural network information technology cybersecurity computer vision natural language processing",
     engineering:
       "engineering mechanical electrical civil materials design optimization",
     mathematics:
@@ -169,7 +204,86 @@ function buildFieldQuery(query: string, field: string) {
   return `${cleanQuery} ${filter}`;
 }
 
+function normalizeIssn(value: string) {
+  return cleanText(value)
+    .replace(/[^0-9xX]/g, "")
+    .toUpperCase();
+}
+
+function splitIssns(value: string) {
+  return cleanText(value)
+    .split(/[,; ]+/)
+    .map(normalizeIssn)
+    .filter(Boolean);
+}
+
+function getCrossrefIssns(work: CrossrefWork) {
+  const issnsFromIssn = Array.isArray(work.ISSN) ? work.ISSN : [];
+  const issnsFromIssnType = Array.isArray(work["issn-type"])
+    ? work["issn-type"]
+        .map((item) => item.value || "")
+        .filter(Boolean)
+    : [];
+
+  return Array.from(new Set([...issnsFromIssn, ...issnsFromIssnType]))
+    .map(cleanText)
+    .filter(Boolean);
+}
+
+function normalizeJournalTitle(value: string) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/\bthe\b/g, "")
+    .replace(/\bjournal of\b/g, "journal")
+    .replace(/\binternational journal of\b/g, "international journal")
+    .replace(/\bproceedings of\b/g, "proceedings")
+    .replace(/\btransactions on\b/g, "transactions")
+    .replace(/\bmagazine\b/g, "")
+    .replace(/\bletters\b/g, "")
+    .replace(/\breview\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getTitleTokens(value: string) {
+  const stopWords = new Set([
+    "and",
+    "of",
+    "the",
+    "in",
+    "on",
+    "for",
+    "to",
+    "a",
+    "an",
+    "journal",
+    "international",
+  ]);
+
+  return normalizeJournalTitle(value)
+    .split(" ")
+    .filter((token) => token.length >= 3 && !stopWords.has(token));
+}
+
+function tokenSimilarity(a: string[], b: string[]) {
+  if (!a.length || !b.length) return 0;
+
+  const aSet = new Set(a);
+  const bSet = new Set(b);
+
+  const intersection = [...aSet].filter((token) => bSet.has(token)).length;
+  const union = new Set([...aSet, ...bSet]).size;
+
+  return union === 0 ? 0 : intersection / union;
+}
+
 function normalizeCrossrefWork(work: CrossrefWork): GlobalArticle | null {
+  if (work.type && work.type !== "journal-article") {
+    return null;
+  }
+
   const doi = cleanText(work.DOI);
   const title = cleanText(
     [work.title?.[0], work.subtitle?.[0]].filter(Boolean).join(": ")
@@ -182,6 +296,7 @@ function normalizeCrossrefWork(work: CrossrefWork): GlobalArticle | null {
   const journal = cleanText(work["container-title"]?.[0]);
   const pubdate = getPublicationDate(work);
   const sourceUrl = doi ? `https://doi.org/${doi}` : cleanText(work.URL);
+  const issns = getCrossrefIssns(work);
 
   return {
     id: doi || encodeURIComponent(title.toLowerCase()),
@@ -200,10 +315,11 @@ function normalizeCrossrefWork(work: CrossrefWork): GlobalArticle | null {
     sjr: "",
     hIndex: "",
     publisher: cleanText(work.publisher),
-    issn: Array.isArray(work.ISSN) ? work.ISSN.join(", ") : "",
+    issn: issns.join(", "),
     matchConfidence: "Crossref metadata",
   };
 }
+
 function parseCsvLine(line: string, delimiter: string) {
   const values: string[] = [];
   let current = "";
@@ -245,10 +361,7 @@ function detectDelimiter(headerLine: string) {
   return semicolonCount > commaCount ? ";" : ",";
 }
 
-function getRowValue(
-  row: Record<string, string>,
-  possibleNames: string[]
-) {
+function getRowValue(row: Record<string, string>, possibleNames: string[]) {
   for (const name of possibleNames) {
     const value = row[name];
 
@@ -258,30 +371,6 @@ function getRowValue(
   }
 
   return "";
-}
-
-function normalizeJournalTitle(value: string) {
-  return cleanText(value)
-    .toLowerCase()
-    .replace(/&amp;/g, "and")
-    .replace(/&/g, "and")
-    .replace(/\bthe\b/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeIssn(value: string) {
-  return cleanText(value)
-    .replace(/[^0-9xX]/g, "")
-    .toUpperCase();
-}
-
-function splitIssns(value: string) {
-  return cleanText(value)
-    .split(/[,; ]+/)
-    .map(normalizeIssn)
-    .filter(Boolean);
 }
 
 function extractQuartile(row: Record<string, string>) {
@@ -346,6 +435,7 @@ async function loadScimagoJournals() {
       return {
         title,
         normalizedTitle: normalizeJournalTitle(title),
+        titleTokens: getTitleTokens(title),
         issns: splitIssns(issn),
         quartile,
         sjr: getRowValue(row, ["SJR", "sjr"]),
@@ -394,24 +484,43 @@ function findScimagoMatch(article: GlobalArticle, journals: ScimagoJournal[]) {
     };
   }
 
-  if (articleJournalTitle.length >= 8) {
-    const softTitleMatch = journals.find((journal) => {
-      if (!journal.normalizedTitle || journal.normalizedTitle.length < 8) {
-        return false;
-      }
+  const articleTokens = getTitleTokens(article.journal);
 
-      return (
-        journal.normalizedTitle.includes(articleJournalTitle) ||
-        articleJournalTitle.includes(journal.normalizedTitle)
-      );
-    });
+  let bestMatch: {
+    journal: ScimagoJournal;
+    score: number;
+  } | null = null;
 
-    if (softTitleMatch) {
+  for (const journal of journals) {
+    if (!journal.normalizedTitle || journal.normalizedTitle.length < 6) {
+      continue;
+    }
+
+    if (
+      journal.normalizedTitle.includes(articleJournalTitle) ||
+      articleJournalTitle.includes(journal.normalizedTitle)
+    ) {
       return {
-        journal: softTitleMatch,
+        journal,
         confidence: "Journal title partial match",
       };
     }
+
+    const score = tokenSimilarity(articleTokens, journal.titleTokens);
+
+    if (score >= 0.72 && (!bestMatch || score > bestMatch.score)) {
+      bestMatch = {
+        journal,
+        score,
+      };
+    }
+  }
+
+  if (bestMatch) {
+    return {
+      journal: bestMatch.journal,
+      confidence: `Journal title token match (${bestMatch.score.toFixed(2)})`,
+    };
   }
 
   return null;
@@ -440,6 +549,65 @@ function enrichWithScimago(
     matchConfidence: match.confidence,
   };
 }
+
+async function fetchCrossrefByDoi(doi: string) {
+  const response = await fetch(
+    `https://api.crossref.org/works/${encodeURIComponent(doi)}`,
+    {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
+      },
+      next: {
+        revalidate: 60 * 60,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const data = (await response.json()) as CrossrefSingleResponse;
+
+  return data.message || null;
+}
+
+async function fetchCrossrefWorks(
+  fieldAwareQuery: string,
+  fromYear: number,
+  toYear: number,
+  maxResults: number
+) {
+  const params = new URLSearchParams({
+    "query.bibliographic": fieldAwareQuery,
+    rows: String(maxResults),
+    select:
+      "DOI,title,subtitle,author,container-title,publisher,ISSN,issn-type,issued,published,URL,type,subject,abstract",
+    sort: "relevance",
+    order: "desc",
+    filter: `from-pub-date:${fromYear},until-pub-date:${toYear},type:journal-article`,
+  });
+
+  const response = await fetch(`https://api.crossref.org/works?${params}`, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
+    },
+    next: {
+      revalidate: 60 * 30,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Crossref search failed.");
+  }
+
+  const data = (await response.json()) as CrossrefListResponse;
+
+  return data.message?.items || [];
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -448,10 +616,9 @@ export async function GET(request: Request) {
       searchParams.get("query") || searchParams.get("q") || ""
     );
     const field = cleanText(searchParams.get("field") || "all");
-    const fromYear = Number(searchParams.get("fromYear") || "1990");
-    const toYear = Number(
-      searchParams.get("toYear") || new Date().getFullYear()
-    );
+    const currentYear = new Date().getFullYear();
+    const fromYear = parseYear(searchParams.get("fromYear"), 1990);
+    const toYear = parseYear(searchParams.get("toYear"), currentYear);
     const maxResults = Math.min(
       Math.max(Number(searchParams.get("maxResults") || "50"), 1),
       100
@@ -464,50 +631,29 @@ export async function GET(request: Request) {
       );
     }
 
-    const fieldAwareQuery = buildFieldQuery(query, field);
-
-    const params = new URLSearchParams({
-      "query.bibliographic": fieldAwareQuery,
-      rows: String(maxResults),
-      select:
-        "DOI,title,subtitle,author,container-title,publisher,ISSN,issued,published,URL,type,subject,abstract",
-      sort: "relevance",
-      order: "desc",
-      filter: `from-pub-date:${fromYear},until-pub-date:${toYear}`,
-    });
-
-    const response = await fetch(`https://api.crossref.org/works?${params}`, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
-      },
-      next: {
-        revalidate: 60 * 30,
-      },
-    });
-
-    const data = (await response.json()) as CrossrefResponse;
-
-    if (!response.ok) {
-      return Response.json(
-        { error: "Crossref search failed." },
-        { status: response.status }
-      );
-    }
-
     const scimagoJournals = await loadScimagoJournals();
 
-const articles = (data.message?.items || [])
-  .map(normalizeCrossrefWork)
-  .filter((article): article is GlobalArticle => Boolean(article))
-  .map((article) => enrichWithScimago(article, scimagoJournals))
-  .filter((article) => {
-    const year = getYearFromDate(article.pubdate);
+    const works = looksLikeDoi(query)
+      ? [await fetchCrossrefByDoi(query)]
+      : await fetchCrossrefWorks(
+          buildFieldQuery(query, field),
+          fromYear,
+          toYear,
+          maxResults
+        );
 
-    if (!year) return true;
+    const articles = works
+      .filter((work): work is CrossrefWork => Boolean(work))
+      .map(normalizeCrossrefWork)
+      .filter((article): article is GlobalArticle => Boolean(article))
+      .map((article) => enrichWithScimago(article, scimagoJournals))
+      .filter((article) => {
+        const year = getYearFromDate(article.pubdate);
 
-    return year >= fromYear && year <= toYear;
-  });
+        if (!year) return true;
+
+        return year >= fromYear && year <= toYear;
+      });
 
     return Response.json(articles);
   } catch (error) {
