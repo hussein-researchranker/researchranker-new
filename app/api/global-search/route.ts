@@ -75,7 +75,39 @@ type CrossrefListResponse = {
 type CrossrefSingleResponse = {
   message?: CrossrefWork;
 };
+type OpenAlexSource = {
+  display_name?: string;
+  issn_l?: string;
+  issn?: string[];
+  host_organization_name?: string;
+};
 
+type OpenAlexWork = {
+  id?: string;
+  doi?: string;
+  title?: string;
+  publication_year?: number;
+  publication_date?: string;
+  primary_location?: {
+    source?: OpenAlexSource | null;
+    landing_page_url?: string;
+    pdf_url?: string;
+  } | null;
+  locations?: Array<{
+    source?: OpenAlexSource | null;
+    landing_page_url?: string;
+    pdf_url?: string;
+  }>;
+  open_access?: {
+    is_oa?: boolean;
+    oa_url?: string;
+    any_repository_has_fulltext?: boolean;
+  };
+};
+
+type OpenAlexResponse = {
+  results?: OpenAlexWork[];
+};
 let scimagoCache: ScimagoJournal[] | null = null;
 
 function cleanText(value: unknown) {
@@ -539,7 +571,119 @@ function enrichWithScimago(
     matchConfidence: match.confidence,
   };
 }
+function normalizeDoiForOpenAlex(doi: string) {
+  return cleanText(doi)
+    .replace(/^https?:\/\/doi\.org\//i, "")
+    .replace(/^doi:/i, "")
+    .trim();
+}
 
+async function fetchOpenAlexByDoi(doi: string) {
+  const cleanDoi = normalizeDoiForOpenAlex(doi);
+
+  if (!cleanDoi) {
+    return null;
+  }
+
+  const params = new URLSearchParams({
+    filter: `doi:https://doi.org/${cleanDoi}`,
+    per_page: "1",
+  });
+
+  const apiKey = process.env.OPENALEX_API_KEY;
+
+  if (apiKey) {
+    params.set("api_key", apiKey);
+  }
+
+  const response = await fetch(`https://api.openalex.org/works?${params}`, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
+    },
+    next: {
+      revalidate: 60 * 60,
+    },
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const data = (await response.json()) as OpenAlexResponse;
+
+  return data.results?.[0] || null;
+}
+function getOpenAlexSource(work: OpenAlexWork) {
+  const primarySource = work.primary_location?.source;
+
+  if (primarySource?.display_name || primarySource?.issn_l || primarySource?.issn?.length) {
+    return primarySource;
+  }
+
+  const locationWithSource = work.locations?.find(
+    (location) =>
+      location.source?.display_name ||
+      location.source?.issn_l ||
+      location.source?.issn?.length
+  );
+
+  return locationWithSource?.source || null;
+}
+
+function getOpenAlexIssns(source: OpenAlexSource | null) {
+  if (!source) {
+    return "";
+  }
+
+  const issns = [
+    source.issn_l || "",
+    ...(Array.isArray(source.issn) ? source.issn : []),
+  ]
+    .map(cleanText)
+    .filter(Boolean);
+
+  return Array.from(new Set(issns)).join(", ");
+}
+
+function improveArticleWithOpenAlexSource(
+  article: GlobalArticle,
+  openAlexWork: OpenAlexWork
+): GlobalArticle {
+  const source = getOpenAlexSource(openAlexWork);
+
+  if (!source) {
+    return article;
+  }
+
+  const openAlexJournal = cleanText(source.display_name);
+  const openAlexIssn = getOpenAlexIssns(source);
+  const openAlexPublisher = cleanText(source.host_organization_name);
+
+  return {
+    ...article,
+    journal: article.journal || openAlexJournal,
+    issn: article.issn || openAlexIssn,
+    publisher: article.publisher || openAlexPublisher,
+    sourceUrl:
+      article.sourceUrl ||
+      cleanText(workUrlFromOpenAlex(openAlexWork)) ||
+      article.sourceUrl,
+    matchConfidence:
+      article.matchConfidence === "Crossref metadata"
+        ? "Crossref metadata + OpenAlex source metadata"
+        : article.matchConfidence,
+  };
+}
+
+function workUrlFromOpenAlex(work: OpenAlexWork) {
+  return (
+    cleanText(work.primary_location?.landing_page_url) ||
+    cleanText(work.primary_location?.pdf_url) ||
+    cleanText(work.open_access?.oa_url) ||
+    ""
+  );
+}
 async function fetchCrossrefByDoi(doi: string) {
   const response = await fetch(
     `https://api.crossref.org/works/${encodeURIComponent(doi)}`,
@@ -632,18 +776,47 @@ export async function GET(request: Request) {
           maxResults
         );
 
-    const articles = works
-      .filter((work): work is CrossrefWork => Boolean(work))
-      .map(normalizeCrossrefWork)
-      .filter((article): article is GlobalArticle => Boolean(article))
-      .map((article) => enrichWithScimago(article, scimagoJournals))
-      .filter((article) => {
-        const year = getYearFromDate(article.pubdate);
+    const normalizedArticles = works
+  .filter((work): work is CrossrefWork => Boolean(work))
+  .map(normalizeCrossrefWork)
+  .filter((article): article is GlobalArticle => Boolean(article));
 
-        if (!year) return true;
+const articlesWithScimago = await Promise.all(
+  normalizedArticles.map(async (article) => {
+    const scimagoMatchedArticle = enrichWithScimago(
+      article,
+      scimagoJournals
+    );
 
-        return year >= fromYear && year <= toYear;
-      });
+    if (
+      scimagoMatchedArticle.quartile !== "Not found" ||
+      !scimagoMatchedArticle.doi
+    ) {
+      return scimagoMatchedArticle;
+    }
+
+    const openAlexWork = await fetchOpenAlexByDoi(scimagoMatchedArticle.doi);
+
+    if (!openAlexWork) {
+      return scimagoMatchedArticle;
+    }
+
+    const openAlexImprovedArticle = improveArticleWithOpenAlexSource(
+      scimagoMatchedArticle,
+      openAlexWork
+    );
+
+    return enrichWithScimago(openAlexImprovedArticle, scimagoJournals);
+  })
+);
+
+const articles = articlesWithScimago.filter((article) => {
+  const year = getYearFromDate(article.pubdate);
+
+  if (!year) return true;
+
+  return year >= fromYear && year <= toYear;
+});
 
     return Response.json(articles);
   } catch (error) {
