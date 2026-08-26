@@ -1,3 +1,6 @@
+import { auth } from "@clerk/nextjs/server";
+import { checkRateLimit } from "@/lib/rate-limit";
+
 type UnpaywallLocation = {
   url?: string;
   url_for_pdf?: string;
@@ -16,6 +19,9 @@ type UnpaywallResponse = {
   best_oa_location?: UnpaywallLocation | null;
   oa_locations?: UnpaywallLocation[];
 };
+
+const UNPAYWALL_TIMEOUT_MS = 12_000;
+const PDF_CHECK_LIMIT_PER_MINUTE = 60;
 
 function cleanText(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -47,8 +53,49 @@ function pickBestPdfLocation(data: UnpaywallResponse) {
   );
 }
 
+function isTimeoutError(error: unknown) {
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  );
+}
+
 export async function GET(request: Request) {
   try {
+    const { userId } = await auth();
+
+    if (!userId) {
+      return Response.json(
+        {
+          available: false,
+          error: "You must sign in to check PDF/Open Access status.",
+        },
+        { status: 401 }
+      );
+    }
+
+    const rateLimit = await checkRateLimit({
+      key: `pdf-check:${userId}`,
+      limit: PDF_CHECK_LIMIT_PER_MINUTE,
+      windowSeconds: 60,
+    });
+
+    if (!rateLimit.success) {
+      return Response.json(
+        {
+          available: false,
+          error: "PDF/Open Access rate limit reached. Please try again shortly.",
+          retryAfterSeconds: rateLimit.retryAfterSeconds,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateLimit.retryAfterSeconds),
+          },
+        }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
 
     const doi = normalizeDoi(
@@ -65,10 +112,23 @@ export async function GET(request: Request) {
       );
     }
 
-    const email =
+    const email = cleanText(
       process.env.UNPAYWALL_EMAIL ||
-      process.env.NEXT_PUBLIC_CONTACT_EMAIL ||
-      "husseinjk40@gmail.com";
+        process.env.RESEARCHRANKER_CONTACT_EMAIL ||
+        process.env.NEXT_PUBLIC_CONTACT_EMAIL ||
+        ""
+    );
+
+    if (!email) {
+      return Response.json(
+        {
+          available: false,
+          error:
+            "Unpaywall contact email is not configured. Set UNPAYWALL_EMAIL in Vercel Environment Variables.",
+        },
+        { status: 503 }
+      );
+    }
 
     const params = new URLSearchParams({
       email,
@@ -84,6 +144,7 @@ export async function GET(request: Request) {
         next: {
           revalidate: 60 * 60 * 24,
         },
+        signal: AbortSignal.timeout(UNPAYWALL_TIMEOUT_MS),
       }
     );
 
@@ -159,6 +220,16 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("PDF check route error:", error);
+
+    if (isTimeoutError(error)) {
+      return Response.json(
+        {
+          available: false,
+          error: "PDF/Open Access check timed out. Please try again.",
+        },
+        { status: 504 }
+      );
+    }
 
     return Response.json(
       {
