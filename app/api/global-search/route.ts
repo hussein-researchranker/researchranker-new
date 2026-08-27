@@ -11,6 +11,7 @@ const MAX_RESULTS = 50;
 const MIN_YEAR = 1900;
 const GLOBAL_SEARCH_TIMEOUT_MS = 25_000;
 const OPENALEX_TIMEOUT_MS = 10_000;
+const DATACITE_TIMEOUT_MS = 8_000;
 
 type OpenAlexWork = {
   id?: string;
@@ -40,6 +41,28 @@ type OpenAlexWork = {
 
 type OpenAlexResponse = {
   results?: OpenAlexWork[];
+};
+
+type DataCiteResponse = {
+  data?: {
+    id?: string;
+    attributes?: {
+      doi?: string;
+      titles?: Array<{ title?: string }>;
+      creators?: Array<{
+        name?: string;
+        givenName?: string;
+        familyName?: string;
+      }>;
+      publisher?: string;
+      publicationYear?: number;
+      url?: string;
+      container?: {
+        title?: string;
+        identifier?: string;
+      };
+    };
+  };
 };
 
 function cleanText(value: unknown) {
@@ -101,6 +124,77 @@ function normalizeOpenAlexWork(work: OpenAlexWork, isDoiSearch: boolean) {
       ? "OpenAlex DOI exact match"
       : "OpenAlex relevance search",
   };
+}
+
+function normalizeDataCiteWork(data: DataCiteResponse, requestedDoi: string) {
+  const attributes = data.data?.attributes;
+
+  if (!attributes) {
+    return null;
+  }
+
+  const doi = normalizeDoi(attributes.doi || data.data?.id || requestedDoi);
+  const title = cleanText(attributes.titles?.[0]?.title);
+  const authors = (attributes.creators || [])
+    .map((creator) => {
+      const directName = cleanText(creator.name);
+      if (directName) return directName;
+
+      return cleanText(
+        [creator.givenName, creator.familyName].filter(Boolean).join(" ")
+      );
+    })
+    .filter(Boolean)
+    .slice(0, 8)
+    .join(", ");
+
+  if (!doi && !title) {
+    return null;
+  }
+
+  return {
+    id: doi || encodeURIComponent(title.toLowerCase()),
+    title: title || "Untitled DataCite record",
+    journal: cleanText(attributes.container?.title),
+    pubdate: attributes.publicationYear ? String(attributes.publicationYear) : "",
+    authors,
+    doi,
+    abstract: "",
+    source: "DataCite",
+    sourceUrl:
+      cleanText(attributes.url) || (doi ? `https://doi.org/${doi}` : ""),
+    quartile: "Not found",
+    indexingStatus: "DataCite DOI metadata / SCImago quartile not yet verified",
+    sjr: "",
+    hIndex: "",
+    publisher: cleanText(attributes.publisher),
+    issn: cleanText(attributes.container?.identifier),
+    matchConfidence: "DataCite DOI exact match",
+  };
+}
+
+async function fetchDataCiteByDoi(doi: string) {
+  try {
+    const response = await fetch(
+      `https://api.datacite.org/dois/${encodeURIComponent(doi)}`,
+      {
+        headers: {
+          Accept: "application/vnd.api+json, application/json",
+        },
+        signal: AbortSignal.timeout(DATACITE_TIMEOUT_MS),
+        cache: "no-store",
+      }
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = (await response.json()) as DataCiteResponse;
+    return normalizeDataCiteWork(data, doi);
+  } catch {
+    return null;
+  }
 }
 
 async function fetchOpenAlexFallback(options: {
@@ -280,6 +374,14 @@ export async function GET(request: Request) {
     const responseData = await response.clone().json().catch(() => null);
 
     if (Array.isArray(responseData) && responseData.length === 0) {
+      if (prepared.isDoi) {
+        const dataCiteResult = await fetchDataCiteByDoi(prepared.query);
+
+        if (dataCiteResult) {
+          return Response.json([dataCiteResult]);
+        }
+      }
+
       const fallbackResults = await fetchOpenAlexFallback({
         query: prepared.query,
         doi: prepared.isDoi ? prepared.query : "",
