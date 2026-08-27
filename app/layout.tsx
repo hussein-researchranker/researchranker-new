@@ -14,9 +14,22 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ResearchRanker",
+  title: {
+    default: "ResearchRanker",
+    template: "%s | ResearchRanker",
+  },
   description:
-    "Search research articles, classify journals, and track publishing news.",
+    "منصة بحث أكاديمي للتحقق من بيانات المجلات، البحث بالمصادر، التلخيص المقيد بالأدلة، ومتابعة أخبار النشر العلمي.",
+  applicationName: "ResearchRanker",
+  keywords: [
+    "academic search",
+    "research articles",
+    "journal quartile",
+    "Scopus",
+    "Crossref",
+    "OpenAlex",
+    "DOI",
+  ],
 };
 
 export default function RootLayout({
@@ -27,7 +40,8 @@ export default function RootLayout({
   return (
     <ClerkProvider>
       <html
-        lang="en"
+        lang="ar"
+        dir="rtl"
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <body>{children}</body>
