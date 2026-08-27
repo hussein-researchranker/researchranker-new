@@ -138,193 +138,9 @@ jobs:
 
           core_path.write_text(core, encoding="utf-8")
 
-          search_path = Path("app/api/search/route.ts")
-          search = search_path.read_text(encoding="utf-8")
-
-          old_type = '''type MatchConfidence =
-            | "Exact title match"
-            | "Approximate title match"
-            | "Not matched";'''
-          new_type = '''type MatchConfidence =
-            | "ISSN exact match"
-            | "Exact title match"
-            | "Approximate title match"
-            | "Not matched";'''
-          require_count(search, old_type, 1, "legacy match confidence type")
-          search = search.replace(old_type, new_type, 1)
-
-          normalize_tail = '''    .replace(/\\s+/g, " ")
-              .trim();
-          }
-
-          function parseCsvLine'''
-          normalize_replacement = '''    .replace(/\\s+/g, " ")
-              .trim();
-          }
-
-          function normalizeIssn(value: string) {
-            return cleanText(value)
-              .replace(/[^0-9xX]/g, "")
-              .toUpperCase();
-          }
-
-          function splitIssns(value: string) {
-            return cleanText(value)
-              .split(/[,; ]+/)
-              .map(normalizeIssn)
-              .filter((value) => value.length === 8);
-          }
-
-          function parseCsvLine'''
-          require_count(search, normalize_tail, 1, "ISSN helper insertion")
-          search = search.replace(normalize_tail, normalize_replacement, 1)
-
-          old_matcher = '''function matchScimagoJournal(
-            journalName: string,
-            scimagoJournals: ScimagoJournal[]
-          ): {
-            journal: ScimagoJournal | null;
-            confidence: MatchConfidence;
-          } {
-            const normalizedJournal = normalizeTitle(journalName);
-
-            if (!normalizedJournal) {
-              return {
-                journal: null,
-                confidence: "Not matched",
-              };
-            }
-
-            const exactMatch = scimagoJournals.find(
-              (scimagoJournal: ScimagoJournal) =>
-                scimagoJournal.normalizedTitle === normalizedJournal
-            );
-
-            if (exactMatch) {
-              return {
-                journal: exactMatch,
-                confidence: "Exact title match",
-              };
-            }
-
-            return {
-              journal: null,
-              confidence: "Not matched",
-            };
-          }'''
-          new_matcher = '''function matchScimagoJournal(
-            journalName: string,
-            articleIssns: string[],
-            scimagoJournals: ScimagoJournal[]
-          ): {
-            journal: ScimagoJournal | null;
-            confidence: MatchConfidence;
-          } {
-            const normalizedArticleIssns = articleIssns
-              .map(normalizeIssn)
-              .filter((value) => value.length === 8);
-
-            if (normalizedArticleIssns.length > 0) {
-              const issnMatch = scimagoJournals.find((journal) =>
-                splitIssns(journal.issn).some((issn) =>
-                  normalizedArticleIssns.includes(issn)
-                )
-              );
-
-              if (issnMatch) {
-                return {
-                  journal: issnMatch,
-                  confidence: "ISSN exact match",
-                };
-              }
-            }
-
-            const normalizedJournal = normalizeTitle(journalName);
-
-            if (!normalizedJournal) {
-              return {
-                journal: null,
-                confidence: "Not matched",
-              };
-            }
-
-            const exactMatch = scimagoJournals.find(
-              (scimagoJournal: ScimagoJournal) =>
-                scimagoJournal.normalizedTitle === normalizedJournal
-            );
-
-            if (exactMatch) {
-              return {
-                journal: exactMatch,
-                confidence: "Exact title match",
-              };
-            }
-
-            return {
-              journal: null,
-              confidence: "Not matched",
-            };
-          }'''
-          require_count(search, old_matcher, 1, "legacy SCImago matcher")
-          search = search.replace(old_matcher, new_matcher, 1)
-
-          record_tail = '''          source?: string;
-                  pubdate?: string;
-                };'''
-          record_replacement = '''          source?: string;
-                  pubdate?: string;
-                  issn?: string;
-                  essn?: string;
-                };'''
-          require_count(search, record_tail, 1, "PubMed record ISSNs")
-          search = search.replace(record_tail, record_replacement, 1)
-
-          match_call = '''        const scimagoMatchResult = matchScimagoJournal(
-                  journal,
-                  scimagoJournals
-                );
-                const scimagoMatch = scimagoMatchResult.journal;'''
-          match_replacement = '''        const articleIssns = [record.issn, record.essn]
-                  .map((value) => cleanText(value))
-                  .filter(Boolean);
-                const scimagoMatchResult = matchScimagoJournal(
-                  journal,
-                  articleIssns,
-                  scimagoJournals
-                );
-                const scimagoMatch = scimagoMatchResult.journal;
-                const verifiedByIssn =
-                  scimagoMatchResult.confidence === "ISSN exact match";'''
-          require_count(search, match_call, 1, "PubMed SCImago call")
-          search = search.replace(match_call, match_replacement, 1)
-
-          metrics = '''          quartile: scimagoMatch?.quartile || "Not found",
-                  indexingStatus: buildIndexingStatus(scimagoMatch, "PubMed"),
-                  sjr: scimagoMatch?.sjr || "",
-                  hIndex: scimagoMatch?.hIndex || "",
-                  publisher: scimagoMatch?.publisher || "",
-                  issn: scimagoMatch?.issn || "",
-                  matchConfidence: scimagoMatchResult.confidence,'''
-          metrics_replacement = '''          quartile: verifiedByIssn
-                    ? scimagoMatch?.quartile || "Not found"
-                    : "Not found",
-                  indexingStatus: verifiedByIssn
-                    ? buildIndexingStatus(scimagoMatch, "PubMed")
-                    : scimagoMatch
-                      ? "SCImago title candidate only - quartile not verified by ISSN"
-                      : buildIndexingStatus(null, "PubMed"),
-                  sjr: verifiedByIssn ? scimagoMatch?.sjr || "" : "",
-                  hIndex: verifiedByIssn ? scimagoMatch?.hIndex || "" : "",
-                  publisher: verifiedByIssn ? scimagoMatch?.publisher || "" : "",
-                  issn: articleIssns.join(", "),
-                  matchConfidence: scimagoMatchResult.confidence,'''
-          require_count(search, metrics, 1, "PubMed verified metrics")
-          search = search.replace(metrics, metrics_replacement, 1)
-
-          search_path.write_text(search, encoding="utf-8")
-
           advanced_path = Path("app/advanced-search/page.tsx")
           advanced = advanced_path.read_text(encoding="utf-8")
+
           old_union = '''type MatchConfidenceFilter =
             | "All"
             | "Exact title match"
@@ -364,6 +180,7 @@ jobs:
           grep -q 'mapWithConcurrency' app/api/global-search/core.ts
           grep -q 'CORE_OPENALEX_TIMEOUT_MS' app/api/global-search/core.ts
           grep -q 'ISSN exact match' app/api/search/route.ts
+          grep -q 'ISSN exact match' app/advanced-search/page.tsx
 
       - name: Remove one-shot workflow before commit
         shell: bash
@@ -387,5 +204,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "hardening: bound scholarly enrichment and enforce ISSN evidence"
+          git commit -m "hardening: bound scholarly enrichment and remove embedded contact"
           git push origin HEAD:agent/platform-v2
