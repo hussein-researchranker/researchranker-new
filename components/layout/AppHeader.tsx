@@ -2,12 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  SignInButton,
-  SignedIn,
-  SignedOut,
-  UserButton,
-} from "@clerk/nextjs";
+import { SignInButton, UserButton, useAuth } from "@clerk/nextjs";
 
 const navItems = [
   { href: "/dashboard", label: "الرئيسية" },
@@ -24,6 +19,7 @@ function isActive(pathname: string, href: string) {
 
 export default function AppHeader() {
   const pathname = usePathname();
+  const { isSignedIn, isLoaded } = useAuth();
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl" dir="rtl">
@@ -70,7 +66,18 @@ export default function AppHeader() {
           >
             بحث جديد
           </Link>
-          <SignedOut>
+
+          {!isLoaded ? (
+            <span className="h-9 w-9 animate-pulse rounded-full bg-slate-200" aria-hidden="true" />
+          ) : isSignedIn ? (
+            <UserButton
+              appearance={{
+                elements: {
+                  avatarBox: "h-9 w-9",
+                },
+              }}
+            />
+          ) : (
             <SignInButton mode="modal">
               <button
                 type="button"
@@ -79,16 +86,7 @@ export default function AppHeader() {
                 دخول
               </button>
             </SignInButton>
-          </SignedOut>
-          <SignedIn>
-            <UserButton
-              appearance={{
-                elements: {
-                  avatarBox: "h-9 w-9",
-                },
-              }}
-            />
-          </SignedIn>
+          )}
         </div>
       </div>
     </header>
