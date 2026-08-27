@@ -34,9 +34,9 @@ export async function POST(request: Request) {
     if (!question) return Response.json({ error: "Question is required." }, { status: 400 });
     if (ids.length === 0) return Response.json({ error: "Select at least one library article." }, { status: 400 });
 
-    const values = await redis.mget<LibraryArticle>(
+    const values = (await redis.mget(
       ...ids.map((id: string) => `library:${userId}:article:${id}`)
-    );
+    )) as Array<LibraryArticle | null>;
     const articles = values.filter((item): item is LibraryArticle => Boolean(item));
     if (articles.length === 0) return Response.json({ error: "Selected articles were not found." }, { status: 404 });
 
