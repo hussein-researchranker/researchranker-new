@@ -32,9 +32,9 @@ export async function GET() {
       return Response.json({ searches: [] });
     }
 
-    const values = await redis.mget<SavedSearch>(
+    const values = (await redis.mget(
       ...ids.map((id) => `saved-searches:${userId}:item:${id}`)
-    );
+    )) as Array<SavedSearch | null>;
 
     const searches = values
       .filter((item): item is SavedSearch => Boolean(item))
