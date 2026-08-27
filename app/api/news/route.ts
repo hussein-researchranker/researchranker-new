@@ -68,7 +68,12 @@ function decodeHtml(text: string) {
 }
 
 function stripHtml(text: string) {
-  return decodeHtml(text.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]*>/g, " "))
+  return decodeHtml(
+    text
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]*>/g, " ")
+  )
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -93,7 +98,11 @@ function formatDate(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toISOString().slice(0, 10);
 }
 
-function parseRss(xml: string, source: string, provenance: "official" | "editorial"): NewsItem[] {
+function parseRss(
+  xml: string,
+  source: string,
+  provenance: "official" | "editorial"
+): NewsItem[] {
   const items = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
 
   return items.map((item) => ({
@@ -115,31 +124,40 @@ function absoluteUrl(base: string, href: string) {
   }
 }
 
-function parseOfficialIraqiNews(html: string, source: string, baseUrl: string): NewsItem[] {
-  const anchors = [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
+function parseOfficialIraqiNews(
+  html: string,
+  source: string,
+  baseUrl: string
+): NewsItem[] {
+  const anchors = [
+    ...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi),
+  ];
 
-  return anchors
-    .map((match) => {
-      const title = stripHtml(match[2]);
-      const normalized = title.toLowerCase();
-      const relevant = iraqiPublishingKeywords.some((keyword) => normalized.includes(keyword));
+  return anchors.flatMap((match): NewsItem[] => {
+    const title = stripHtml(match[2]);
+    const normalized = title.toLowerCase();
+    const relevant = iraqiPublishingKeywords.some((keyword) =>
+      normalized.includes(keyword)
+    );
 
-      if (!relevant || title.length < 18) return null;
+    if (!relevant || title.length < 18) return [];
 
-      const link = absoluteUrl(baseUrl, match[1]);
-      if (!link || !link.startsWith("https://mohesr.gov.iq/")) return null;
+    const link = absoluteUrl(baseUrl, match[1]);
+    if (!link || !link.startsWith("https://mohesr.gov.iq/")) return [];
 
-      return {
+    return [
+      {
         title,
         source,
         link,
         date: "",
-        summary: "خبر من المصدر الرسمي لوزارة التعليم العالي والبحث العلمي العراقية. افتح المصدر للتحقق من التفاصيل والتاريخ الكامل.",
-        scope: "iraq" as const,
-        provenance: "official" as const,
-      };
-    })
-    .filter((item): item is NewsItem => Boolean(item));
+        summary:
+          "خبر من المصدر الرسمي لوزارة التعليم العالي والبحث العلمي العراقية. افتح المصدر للتحقق من التفاصيل والتاريخ الكامل.",
+        scope: "iraq",
+        provenance: "official",
+      },
+    ];
+  });
 }
 
 function removeDuplicates(news: NewsItem[]) {
@@ -164,7 +182,8 @@ async function fetchText(url: string) {
   const response = await fetch(url, {
     headers: {
       "User-Agent": "ResearchRanker/2.0 academic-news-aggregator",
-      Accept: "text/html,application/rss+xml,application/xml;q=0.9,*/*;q=0.8",
+      Accept:
+        "text/html,application/rss+xml,application/xml;q=0.9,*/*;q=0.8",
     },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     next: { revalidate: 60 * 30 },
@@ -213,8 +232,15 @@ export async function GET(request: Request) {
     }
 
     if (scope === "all") {
-      const [global, iraq] = await Promise.all([loadGlobalNews(), loadIraqiNews()]);
-      return Response.json({ global, iraq, updatedAt: new Date().toISOString() });
+      const [global, iraq] = await Promise.all([
+        loadGlobalNews(),
+        loadIraqiNews(),
+      ]);
+      return Response.json({
+        global,
+        iraq,
+        updatedAt: new Date().toISOString(),
+      });
     }
 
     return Response.json(await loadGlobalNews());
