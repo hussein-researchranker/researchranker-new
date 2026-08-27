@@ -22,6 +22,14 @@ function makeId(query: string, quartile: string, field: string) {
     .slice(0, 120);
 }
 
+function alertIndexKey(userId: string, searchId: string) {
+  return `saved-searches:${userId}:alerts:${searchId}:ids`;
+}
+
+function alertKey(userId: string, searchId: string, workId: string) {
+  return `saved-searches:${userId}:alert:${searchId}:${Buffer.from(workId).toString("base64url")}`;
+}
+
 export async function GET() {
   try {
     const { userId } = await auth();
@@ -84,6 +92,34 @@ export async function POST(request: Request) {
   }
 }
 
+export async function PATCH(request: Request) {
+  try {
+    const { userId } = await auth();
+    if (!userId) return Response.json({ error: "Sign in required." }, { status: 401 });
+
+    const body = await request.json();
+    const id = cleanText(body?.id, 150);
+    if (!id) return Response.json({ error: "Missing search id." }, { status: 400 });
+
+    const key = `saved-searches:${userId}:item:${id}`;
+    const existing = await redis.get<SavedSearch>(key);
+    if (!existing) return Response.json({ error: "Saved search not found." }, { status: 404 });
+
+    const next: SavedSearch = {
+      ...existing,
+      ...(typeof body?.alertEnabled === "boolean"
+        ? { alertEnabled: body.alertEnabled }
+        : {}),
+    };
+
+    await redis.set(key, next);
+    return Response.json({ success: true, search: next });
+  } catch (error) {
+    console.error("Update saved search error:", error);
+    return Response.json({ error: "Failed to update saved search." }, { status: 500 });
+  }
+}
+
 export async function DELETE(request: Request) {
   try {
     const { userId } = await auth();
@@ -93,8 +129,20 @@ export async function DELETE(request: Request) {
     const id = cleanText(body?.id, 150);
     if (!id) return Response.json({ error: "Missing search id." }, { status: 400 });
 
-    await redis.del(`saved-searches:${userId}:item:${id}`);
-    await redis.srem(`saved-searches:${userId}:ids`, id);
+    const alertIds = (await redis.smembers(alertIndexKey(userId, id))) as string[];
+    if (Array.isArray(alertIds) && alertIds.length > 0) {
+      await Promise.all(
+        alertIds.map((workId) => redis.del(alertKey(userId, id, workId)))
+      );
+    }
+
+    await Promise.all([
+      redis.del(`saved-searches:${userId}:item:${id}`),
+      redis.del(`saved-searches:${userId}:seen:${id}`),
+      redis.del(alertIndexKey(userId, id)),
+      redis.srem(`saved-searches:${userId}:ids`, id),
+    ]);
+
     return Response.json({ success: true });
   } catch (error) {
     console.error("Delete saved search error:", error);
