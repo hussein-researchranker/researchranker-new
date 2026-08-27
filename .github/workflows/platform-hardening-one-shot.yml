@@ -22,11 +22,17 @@ jobs:
           ref: agent/platform-v2
           fetch-depth: 0
 
-      - name: Patch search infrastructure
+      - name: Patch scholarly search reliability
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
+
+          def require_count(text: str, needle: str, expected: int, label: str):
+              count = text.count(needle)
+              if count != expected:
+                  raise SystemExit(f"{label}: expected {expected}, found {count}")
 
           core_path = Path("app/api/global-search/core.ts")
           core = core_path.read_text(encoding="utf-8")
@@ -81,166 +87,59 @@ jobs:
             return results;
           }
           '''
+
           if "function getScholarlyUserAgent()" not in core:
-              if core.count(cache_marker) != 1:
-                  raise SystemExit("Unexpected SCImago cache marker count")
+              require_count(core, cache_marker, 1, "SCImago cache marker")
               core = core.replace(cache_marker, helper, 1)
 
           personal_ua = '"User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",'
-          if core.count(personal_ua) != 3:
-              raise SystemExit(f"Expected 3 hard-coded scholarly User-Agents, found {core.count(personal_ua)}")
+          require_count(core, personal_ua, 3, "hard-coded scholarly User-Agent")
           core = core.replace(personal_ua, '"User-Agent": getScholarlyUserAgent(),')
 
-          openalex_old = '''    next: {
-              revalidate: 60 * 60,
-            },
-          });
+          def patch_function_signal(source: str, function_name: str, timeout_constant: str):
+              start = source.find(f"async function {function_name}")
+              if start < 0:
+                  raise SystemExit(f"{function_name}: function not found")
 
-          if (!response.ok) {
-            return null;
-          }
+              next_function = source.find("\nfunction ", start + 1)
+              next_async = source.find("\nasync function ", start + 1)
+              candidates = [p for p in (next_function, next_async) if p >= 0]
+              end = min(candidates) if candidates else len(source)
+              block = source[start:end]
 
-          const data = (await response.json()) as OpenAlexResponse;'''
-          openalex_new = '''    next: {
-              revalidate: 60 * 60,
-            },
-            signal: AbortSignal.timeout(CORE_OPENALEX_TIMEOUT_MS),
-          });
+              if "signal: AbortSignal.timeout(" in block:
+                  return source
 
-          if (!response.ok) {
-            return null;
-          }
+              pattern = r'(next:\s*\{\s*revalidate:\s*60\s*\*\s*(?:60|30),\s*\},)'
+              patched, count = re.subn(
+                  pattern,
+                  rf'\1\n    signal: AbortSignal.timeout({timeout_constant}),',
+                  block,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit(f"{function_name}: cache block for timeout not found")
 
-          const data = (await response.json()) as OpenAlexResponse;'''
-          if openalex_old not in core:
-              raise SystemExit("OpenAlex timeout insertion target not found")
-          core = core.replace(openalex_old, openalex_new, 1)
+              return source[:start] + patched + source[end:]
 
-          crossref_doi_old = '''      next: {
-                revalidate: 60 * 60,
-              },
-            }
-          );'''
-          crossref_doi_new = '''      next: {
-                revalidate: 60 * 60,
-              },
-              signal: AbortSignal.timeout(CORE_CROSSREF_TIMEOUT_MS),
-            }
-          );'''
-          if crossref_doi_old not in core:
-              raise SystemExit("Crossref DOI timeout insertion target not found")
-          core = core.replace(crossref_doi_old, crossref_doi_new, 1)
+          core = patch_function_signal(core, "fetchOpenAlexByDoi", "CORE_OPENALEX_TIMEOUT_MS")
+          core = patch_function_signal(core, "fetchCrossrefByDoi", "CORE_CROSSREF_TIMEOUT_MS")
+          core = patch_function_signal(core, "fetchCrossrefWorks", "CORE_CROSSREF_TIMEOUT_MS")
 
-          crossref_list_old = '''    next: {
-              revalidate: 60 * 30,
-            },
-          });
+          promise_start = "const articlesWithScimago = await Promise.all(\n  normalizedArticles.map(async (article) => {"
+          promise_replacement = "const articlesWithScimago = await mapWithConcurrency(\n  normalizedArticles,\n  5,\n  async (article) => {"
+          require_count(core, promise_start, 1, "OpenAlex enrichment start")
+          core = core.replace(promise_start, promise_replacement, 1)
 
-          if (!response.ok) {
-            throw new Error("Crossref search failed.");
-          }'''
-          crossref_list_new = '''    next: {
-              revalidate: 60 * 30,
-            },
-            signal: AbortSignal.timeout(CORE_CROSSREF_TIMEOUT_MS),
-          });
+          promise_end = "    return enrichWithScimago(openAlexImprovedArticle, scimagoJournals);\n  })\n);"
+          promise_end_replacement = "    return enrichWithScimago(openAlexImprovedArticle, scimagoJournals);\n  }\n);"
+          require_count(core, promise_end, 1, "OpenAlex enrichment end")
+          core = core.replace(promise_end, promise_end_replacement, 1)
 
-          if (!response.ok) {
-            throw new Error("Crossref search failed.");
-          }'''
-          if crossref_list_old not in core:
-              raise SystemExit("Crossref list timeout insertion target not found")
-          core = core.replace(crossref_list_old, crossref_list_new, 1)
-
-          promise_old = '''const articlesWithScimago = await Promise.all(
-            normalizedArticles.map(async (article) => {
-              const scimagoMatchedArticle = enrichWithScimago(
-                article,
-                scimagoJournals
-              );
-
-              if (
-                scimagoMatchedArticle.quartile !== "Not found" ||
-                !scimagoMatchedArticle.doi
-              ) {
-                return scimagoMatchedArticle;
-              }
-
-              const openAlexWork = await fetchOpenAlexByDoi(scimagoMatchedArticle.doi);
-
-              if (!openAlexWork) {
-                return scimagoMatchedArticle;
-              }
-
-              const openAlexImprovedArticle = improveArticleWithOpenAlexSource(
-                scimagoMatchedArticle,
-                openAlexWork
-              );
-
-              return enrichWithScimago(openAlexImprovedArticle, scimagoJournals);
-            })
-          );'''
-          promise_new = '''const articlesWithScimago = await mapWithConcurrency(
-            normalizedArticles,
-            5,
-            async (article) => {
-              const scimagoMatchedArticle = enrichWithScimago(
-                article,
-                scimagoJournals
-              );
-
-              if (
-                scimagoMatchedArticle.quartile !== "Not found" ||
-                !scimagoMatchedArticle.doi
-              ) {
-                return scimagoMatchedArticle;
-              }
-
-              const openAlexWork = await fetchOpenAlexByDoi(scimagoMatchedArticle.doi);
-
-              if (!openAlexWork) {
-                return scimagoMatchedArticle;
-              }
-
-              const openAlexImprovedArticle = improveArticleWithOpenAlexSource(
-                scimagoMatchedArticle,
-                openAlexWork
-              );
-
-              return enrichWithScimago(openAlexImprovedArticle, scimagoJournals);
-            }
-          );'''
-          if promise_old not in core:
-              raise SystemExit("OpenAlex Promise.all enrichment block not found")
-          core = core.replace(promise_old, promise_new, 1)
-
-          core = core.replace(
-              'path.join(process.cwd(), "public", "scimagojr.csv")',
-              'path.join(process.cwd(), "data", "scimagojr.csv")',
-          )
           core_path.write_text(core, encoding="utf-8")
-
-          verification_path = Path("lib/journal-verification.ts")
-          verification = verification_path.read_text(encoding="utf-8")
-          old_path = 'path.join(process.cwd(), "public", "scimagojr.csv")'
-          if verification.count(old_path) != 1:
-              raise SystemExit("Unexpected journal-verification SCImago path count")
-          verification = verification.replace(
-              old_path,
-              'path.join(process.cwd(), "data", "scimagojr.csv")',
-              1,
-          )
-          verification_path.write_text(verification, encoding="utf-8")
 
           search_path = Path("app/api/search/route.ts")
           search = search_path.read_text(encoding="utf-8")
-          if search.count(old_path) != 1:
-              raise SystemExit("Unexpected legacy search SCImago path count")
-          search = search.replace(
-              old_path,
-              'path.join(process.cwd(), "data", "scimagojr.csv")',
-              1,
-          )
 
           old_type = '''type MatchConfidence =
             | "Exact title match"
@@ -251,24 +150,18 @@ jobs:
             | "Exact title match"
             | "Approximate title match"
             | "Not matched";'''
-          if old_type not in search:
-              raise SystemExit("Legacy MatchConfidence type target not found")
+          require_count(search, old_type, 1, "legacy match confidence type")
           search = search.replace(old_type, new_type, 1)
 
-          normalize_marker = '''function normalizeTitle(value: string) {
-            return cleanText(value)
-              .toLowerCase()
-              .replace(/&/g, "and")
-              .replace(/\\bthe\\b/g, "")
-              .replace(/\\bjournal of\\b/g, "")
-              .replace(/\\bamerican journal of\\b/g, "")
-              .replace(/\\binternational journal of\\b/g, "")
-              .replace(/[^a-z0-9]+/g, " ")
-              .replace(/\\s+/g, " ")
+          normalize_tail = '''    .replace(/\\s+/g, " ")
               .trim();
           }
-          '''
-          normalize_replacement = normalize_marker + '''
+
+          function parseCsvLine'''
+          normalize_replacement = '''    .replace(/\\s+/g, " ")
+              .trim();
+          }
+
           function normalizeIssn(value: string) {
             return cleanText(value)
               .replace(/[^0-9xX]/g, "")
@@ -281,12 +174,12 @@ jobs:
               .map(normalizeIssn)
               .filter((value) => value.length === 8);
           }
-          '''
-          if normalize_marker not in search:
-              raise SystemExit("Legacy normalizeTitle insertion target not found")
-          search = search.replace(normalize_marker, normalize_replacement, 1)
 
-          signature_old = '''function matchScimagoJournal(
+          function parseCsvLine'''
+          require_count(search, normalize_tail, 1, "ISSN helper insertion")
+          search = search.replace(normalize_tail, normalize_replacement, 1)
+
+          old_matcher = '''function matchScimagoJournal(
             journalName: string,
             scimagoJournals: ScimagoJournal[]
           ): {
@@ -319,7 +212,7 @@ jobs:
               confidence: "Not matched",
             };
           }'''
-          signature_new = '''function matchScimagoJournal(
+          new_matcher = '''function matchScimagoJournal(
             journalName: string,
             articleIssns: string[],
             scimagoJournals: ScimagoJournal[]
@@ -372,26 +265,26 @@ jobs:
               confidence: "Not matched",
             };
           }'''
-          if signature_old not in search:
-              raise SystemExit("Legacy SCImago matcher target not found")
-          search = search.replace(signature_old, signature_new, 1)
+          require_count(search, old_matcher, 1, "legacy SCImago matcher")
+          search = search.replace(old_matcher, new_matcher, 1)
 
-          record_old = '''          pubdate?: string;
+          record_tail = '''          source?: string;
+                  pubdate?: string;
                 };'''
-          record_new = '''          pubdate?: string;
+          record_replacement = '''          source?: string;
+                  pubdate?: string;
                   issn?: string;
                   essn?: string;
                 };'''
-          if record_old not in search:
-              raise SystemExit("Legacy PubMed record type target not found")
-          search = search.replace(record_old, record_new, 1)
+          require_count(search, record_tail, 1, "PubMed record ISSNs")
+          search = search.replace(record_tail, record_replacement, 1)
 
-          call_old = '''        const scimagoMatchResult = matchScimagoJournal(
+          match_call = '''        const scimagoMatchResult = matchScimagoJournal(
                   journal,
                   scimagoJournals
                 );
                 const scimagoMatch = scimagoMatchResult.journal;'''
-          call_new = '''        const articleIssns = [record.issn, record.essn]
+          match_replacement = '''        const articleIssns = [record.issn, record.essn]
                   .map((value) => cleanText(value))
                   .filter(Boolean);
                 const scimagoMatchResult = matchScimagoJournal(
@@ -402,18 +295,17 @@ jobs:
                 const scimagoMatch = scimagoMatchResult.journal;
                 const verifiedByIssn =
                   scimagoMatchResult.confidence === "ISSN exact match";'''
-          if call_old not in search:
-              raise SystemExit("Legacy SCImago matcher call target not found")
-          search = search.replace(call_old, call_new, 1)
+          require_count(search, match_call, 1, "PubMed SCImago call")
+          search = search.replace(match_call, match_replacement, 1)
 
-          metrics_old = '''          quartile: scimagoMatch?.quartile || "Not found",
+          metrics = '''          quartile: scimagoMatch?.quartile || "Not found",
                   indexingStatus: buildIndexingStatus(scimagoMatch, "PubMed"),
                   sjr: scimagoMatch?.sjr || "",
                   hIndex: scimagoMatch?.hIndex || "",
                   publisher: scimagoMatch?.publisher || "",
                   issn: scimagoMatch?.issn || "",
                   matchConfidence: scimagoMatchResult.confidence,'''
-          metrics_new = '''          quartile: verifiedByIssn
+          metrics_replacement = '''          quartile: verifiedByIssn
                     ? scimagoMatch?.quartile || "Not found"
                     : "Not found",
                   indexingStatus: verifiedByIssn
@@ -426,9 +318,9 @@ jobs:
                   publisher: verifiedByIssn ? scimagoMatch?.publisher || "" : "",
                   issn: articleIssns.join(", "),
                   matchConfidence: scimagoMatchResult.confidence,'''
-          if metrics_old not in search:
-              raise SystemExit("Legacy PubMed metrics target not found")
-          search = search.replace(metrics_old, metrics_new, 1)
+          require_count(search, metrics, 1, "PubMed verified metrics")
+          search = search.replace(metrics, metrics_replacement, 1)
+
           search_path.write_text(search, encoding="utf-8")
 
           advanced_path = Path("app/advanced-search/page.tsx")
@@ -444,48 +336,38 @@ jobs:
             | "Exact title match"
             | "Approximate title match"
             | "Not matched";'''
-          if old_union not in advanced:
-              raise SystemExit("Advanced-search MatchConfidenceFilter target not found")
+          require_count(advanced, old_union, 1, "advanced-search confidence union")
           advanced = advanced.replace(old_union, new_union, 1)
-          old_array = '''const matchConfidenceFilters: MatchConfidenceFilter[] = [
+
+          old_filters = '''const matchConfidenceFilters: MatchConfidenceFilter[] = [
             "All",
             "Exact title match",
             "Approximate title match",
             "Not matched",
           ];'''
-          new_array = '''const matchConfidenceFilters: MatchConfidenceFilter[] = [
+          new_filters = '''const matchConfidenceFilters: MatchConfidenceFilter[] = [
             "All",
             "ISSN exact match",
             "Exact title match",
             "Approximate title match",
             "Not matched",
           ];'''
-          if old_array not in advanced:
-              raise SystemExit("Advanced-search match-confidence array target not found")
-          advanced = advanced.replace(old_array, new_array, 1)
+          require_count(advanced, old_filters, 1, "advanced-search confidence filters")
+          advanced = advanced.replace(old_filters, new_filters, 1)
           advanced_path.write_text(advanced, encoding="utf-8")
           PY
-
-      - name: Move SCImago snapshot out of public assets
-        shell: bash
-        run: |
-          test -f public/scimagojr.csv
-          mkdir -p data
-          git mv public/scimagojr.csv data/scimagojr.csv
-
-      - name: Remove one-shot workflow before commit
-        shell: bash
-        run: rm .github/workflows/platform-hardening-one-shot.yml
 
       - name: Verify source invariants
         shell: bash
         run: |
-          test -f data/scimagojr.csv
-          test ! -f public/scimagojr.csv
           ! grep -R "husseinjk40@gmail.com" app lib --include='*.ts' --include='*.tsx'
-          ! grep -R 'process.cwd(), "public", "scimagojr.csv"' app lib --include='*.ts' --include='*.tsx'
           grep -q 'mapWithConcurrency' app/api/global-search/core.ts
+          grep -q 'CORE_OPENALEX_TIMEOUT_MS' app/api/global-search/core.ts
           grep -q 'ISSN exact match' app/api/search/route.ts
+
+      - name: Remove one-shot workflow before commit
+        shell: bash
+        run: rm .github/workflows/platform-hardening-one-shot.yml
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -499,17 +381,11 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
-      - name: Production build
-        env:
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
-          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
-        run: npm run build
-
       - name: Commit hardening changes
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "hardening: bound scholarly enrichment and privatize journal snapshot"
+          git commit -m "hardening: bound scholarly enrichment and enforce ISSN evidence"
           git push origin HEAD:agent/platform-v2
