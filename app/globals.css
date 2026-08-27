@@ -82,6 +82,23 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
+.researchranker-mobile-nav {
+  padding-bottom: max(0.35rem, env(safe-area-inset-bottom));
+  box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.08);
+}
+
+@media (max-width: 767px) {
+  body {
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
