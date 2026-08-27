@@ -12,6 +12,34 @@ const MIN_YEAR = 1900;
 const GLOBAL_SEARCH_TIMEOUT_MS = 25_000;
 const OPENALEX_TIMEOUT_MS = 10_000;
 const DATACITE_TIMEOUT_MS = 8_000;
+const EUROPE_PMC_TIMEOUT_MS = 10_000;
+const BIOMEDICAL_FIELDS = new Set([
+  "medicine",
+  "life-sciences",
+  "biochemistry",
+  "psychology",
+]);
+
+type SearchArticle = {
+  id?: string;
+  pmid?: string;
+  title?: string;
+  journal?: string;
+  pubdate?: string;
+  authors?: string;
+  doi?: string;
+  abstract?: string;
+  source?: string;
+  sourceUrl?: string;
+  pubmedUrl?: string;
+  quartile?: string;
+  indexingStatus?: string;
+  sjr?: string;
+  hIndex?: string;
+  publisher?: string;
+  issn?: string;
+  matchConfidence?: string;
+};
 
 type OpenAlexWork = {
   id?: string;
@@ -65,6 +93,45 @@ type DataCiteResponse = {
   };
 };
 
+type EuropePmcAuthor = {
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
+};
+
+type EuropePmcResult = {
+  id?: string;
+  source?: string;
+  pmid?: string;
+  pmcid?: string;
+  doi?: string;
+  title?: string;
+  authorString?: string;
+  authorList?: {
+    author?: EuropePmcAuthor[];
+  };
+  journalTitle?: string;
+  journalInfo?: {
+    printPublicationDate?: string;
+    electronicPublicationDate?: string;
+    journal?: {
+      title?: string;
+      ISSN?: string;
+      ESSN?: string;
+    };
+  };
+  firstPublicationDate?: string;
+  pubYear?: string;
+  abstractText?: string;
+  publisher?: string;
+};
+
+type EuropePmcResponse = {
+  resultList?: {
+    result?: EuropePmcResult[];
+  };
+};
+
 function cleanText(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
@@ -82,7 +149,119 @@ function normalizeDoi(value: string) {
     .trim();
 }
 
-function normalizeOpenAlexWork(work: OpenAlexWork, isDoiSearch: boolean) {
+function normalizeTitleKey(value: string) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function articleIdentity(article: SearchArticle) {
+  const doi = normalizeDoi(article.doi || "");
+  if (doi) return `doi:${doi.toLowerCase()}`;
+
+  const pmid = cleanText(article.pmid);
+  if (pmid) return `pmid:${pmid}`;
+
+  const title = normalizeTitleKey(article.title || "");
+  return title ? `title:${title}` : "";
+}
+
+function hasExactIssnMatch(article: SearchArticle) {
+  return cleanText(article.matchConfidence)
+    .toLowerCase()
+    .includes("issn exact match");
+}
+
+function sanitizeQuartileEvidence(article: SearchArticle): SearchArticle {
+  if (hasExactIssnMatch(article)) {
+    return {
+      ...article,
+      indexingStatus:
+        cleanText(article.indexingStatus) ||
+        "SCImago snapshot matched by exact ISSN",
+    };
+  }
+
+  const confidence = cleanText(article.matchConfidence);
+  const unsafeScimagoCandidate =
+    confidence.toLowerCase().includes("journal title") ||
+    confidence.toLowerCase().includes("strict token match");
+
+  return {
+    ...article,
+    quartile: "Not found",
+    sjr: "",
+    hIndex: "",
+    publisher: unsafeScimagoCandidate ? "" : article.publisher,
+    indexingStatus: unsafeScimagoCandidate
+      ? "SCImago candidate was not accepted because the match was not based on exact ISSN"
+      : cleanText(article.indexingStatus) ||
+        "Journal quartile not verified by exact ISSN",
+    matchConfidence: unsafeScimagoCandidate
+      ? `Unverified SCImago candidate: ${confidence}`
+      : confidence,
+  };
+}
+
+function mergeArticleRecords(primary: SearchArticle, secondary: SearchArticle) {
+  const primaryHasAbstract = cleanText(primary.abstract).length > 80;
+  const secondaryHasAbstract = cleanText(secondary.abstract).length > 80;
+
+  return sanitizeQuartileEvidence({
+    ...secondary,
+    ...primary,
+    pmid: cleanText(primary.pmid) || cleanText(secondary.pmid),
+    title: cleanText(primary.title) || cleanText(secondary.title),
+    journal: cleanText(primary.journal) || cleanText(secondary.journal),
+    pubdate: cleanText(primary.pubdate) || cleanText(secondary.pubdate),
+    authors: cleanText(primary.authors) || cleanText(secondary.authors),
+    doi: normalizeDoi(primary.doi || secondary.doi || ""),
+    abstract: primaryHasAbstract
+      ? cleanText(primary.abstract)
+      : secondaryHasAbstract
+        ? cleanText(secondary.abstract)
+        : cleanText(primary.abstract) || cleanText(secondary.abstract),
+    sourceUrl: cleanText(primary.sourceUrl) || cleanText(secondary.sourceUrl),
+    pubmedUrl: cleanText(primary.pubmedUrl) || cleanText(secondary.pubmedUrl),
+    publisher: cleanText(primary.publisher) || cleanText(secondary.publisher),
+    issn: cleanText(primary.issn) || cleanText(secondary.issn),
+    source:
+      primary.source && secondary.source && primary.source !== secondary.source
+        ? `${primary.source} + ${secondary.source}`
+        : cleanText(primary.source) || cleanText(secondary.source),
+  });
+}
+
+function deduplicateAndMerge(
+  primary: SearchArticle[],
+  secondary: SearchArticle[],
+  maxResults: number
+) {
+  const map = new Map<string, SearchArticle>();
+  const anonymous: SearchArticle[] = [];
+
+  for (const item of [...primary, ...secondary]) {
+    const sanitized = sanitizeQuartileEvidence(item);
+    const key = articleIdentity(sanitized);
+
+    if (!key) {
+      anonymous.push(sanitized);
+      continue;
+    }
+
+    const existing = map.get(key);
+    map.set(key, existing ? mergeArticleRecords(existing, sanitized) : sanitized);
+  }
+
+  return [...map.values(), ...anonymous].slice(0, maxResults);
+}
+
+function normalizeOpenAlexWork(
+  work: OpenAlexWork,
+  isDoiSearch: boolean
+): SearchArticle {
   const doi = normalizeDoi(work.doi || "");
   const source = work.primary_location?.source;
   const sourceUrl =
@@ -115,7 +294,7 @@ function normalizeOpenAlexWork(work: OpenAlexWork, isDoiSearch: boolean) {
     source: "OpenAlex",
     sourceUrl,
     quartile: "Not found",
-    indexingStatus: "OpenAlex metadata / SCImago quartile not yet verified",
+    indexingStatus: "OpenAlex metadata / quartile not verified",
     sjr: "",
     hIndex: "",
     publisher: cleanText(source?.host_organization_name),
@@ -126,12 +305,12 @@ function normalizeOpenAlexWork(work: OpenAlexWork, isDoiSearch: boolean) {
   };
 }
 
-function normalizeDataCiteWork(data: DataCiteResponse, requestedDoi: string) {
+function normalizeDataCiteWork(
+  data: DataCiteResponse,
+  requestedDoi: string
+): SearchArticle | null {
   const attributes = data.data?.attributes;
-
-  if (!attributes) {
-    return null;
-  }
+  if (!attributes) return null;
 
   const doi = normalizeDoi(attributes.doi || data.data?.id || requestedDoi);
   const title = cleanText(attributes.titles?.[0]?.title);
@@ -139,7 +318,6 @@ function normalizeDataCiteWork(data: DataCiteResponse, requestedDoi: string) {
     .map((creator) => {
       const directName = cleanText(creator.name);
       if (directName) return directName;
-
       return cleanText(
         [creator.givenName, creator.familyName].filter(Boolean).join(" ")
       );
@@ -148,15 +326,15 @@ function normalizeDataCiteWork(data: DataCiteResponse, requestedDoi: string) {
     .slice(0, 8)
     .join(", ");
 
-  if (!doi && !title) {
-    return null;
-  }
+  if (!doi && !title) return null;
 
   return {
     id: doi || encodeURIComponent(title.toLowerCase()),
     title: title || "Untitled DataCite record",
     journal: cleanText(attributes.container?.title),
-    pubdate: attributes.publicationYear ? String(attributes.publicationYear) : "",
+    pubdate: attributes.publicationYear
+      ? String(attributes.publicationYear)
+      : "",
     authors,
     doi,
     abstract: "",
@@ -164,12 +342,74 @@ function normalizeDataCiteWork(data: DataCiteResponse, requestedDoi: string) {
     sourceUrl:
       cleanText(attributes.url) || (doi ? `https://doi.org/${doi}` : ""),
     quartile: "Not found",
-    indexingStatus: "DataCite DOI metadata / SCImago quartile not yet verified",
+    indexingStatus: "DataCite DOI metadata / quartile not verified",
     sjr: "",
     hIndex: "",
     publisher: cleanText(attributes.publisher),
     issn: cleanText(attributes.container?.identifier),
     matchConfidence: "DataCite DOI exact match",
+  };
+}
+
+function normalizeEuropePmcWork(work: EuropePmcResult): SearchArticle | null {
+  const doi = normalizeDoi(work.doi || "");
+  const pmid = cleanText(work.pmid || (work.source === "MED" ? work.id : ""));
+  const title = cleanText(work.title);
+
+  if (!title && !doi && !pmid) return null;
+
+  const journal = work.journalInfo?.journal;
+  const authors =
+    cleanText(work.authorString) ||
+    (work.authorList?.author || [])
+      .map((author) =>
+        cleanText(
+          author.fullName ||
+            [author.firstName, author.lastName].filter(Boolean).join(" ")
+        )
+      )
+      .filter(Boolean)
+      .slice(0, 8)
+      .join(", ");
+
+  const issns = [cleanText(journal?.ISSN), cleanText(journal?.ESSN)].filter(
+    Boolean
+  );
+  const pubdate =
+    cleanText(work.firstPublicationDate) ||
+    cleanText(work.journalInfo?.electronicPublicationDate) ||
+    cleanText(work.journalInfo?.printPublicationDate) ||
+    cleanText(work.pubYear);
+
+  return {
+    id: doi || pmid || cleanText(work.id) || encodeURIComponent(title),
+    pmid,
+    title: title || "Untitled Europe PMC record",
+    journal: cleanText(journal?.title) || cleanText(work.journalTitle),
+    pubdate,
+    authors,
+    doi,
+    abstract: cleanText(work.abstractText),
+    source: "Europe PMC",
+    sourceUrl: pmid
+      ? `https://europepmc.org/article/MED/${pmid}`
+      : doi
+        ? `https://doi.org/${doi}`
+        : cleanText(work.id)
+          ? `https://europepmc.org/article/${cleanText(work.source)}/${cleanText(work.id)}`
+          : "",
+    pubmedUrl: pmid
+      ? `https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(pmid)}/`
+      : "",
+    quartile: "Not found",
+    indexingStatus: "Europe PMC biomedical metadata / quartile not verified",
+    sjr: "",
+    hIndex: "",
+    publisher: cleanText(work.publisher),
+    issn: Array.from(new Set(issns)).join(", "),
+    matchConfidence: pmid
+      ? "Europe PMC / PubMed-linked metadata"
+      : "Europe PMC relevance search",
   };
 }
 
@@ -186,10 +426,7 @@ async function fetchDataCiteByDoi(doi: string) {
       }
     );
 
-    if (!response.ok) {
-      return null;
-    }
-
+    if (!response.ok) return null;
     const data = (await response.json()) as DataCiteResponse;
     return normalizeDataCiteWork(data, doi);
   } catch {
@@ -207,9 +444,7 @@ async function fetchOpenAlexFallback(options: {
   const params = new URLSearchParams();
   const apiKey = process.env.OPENALEX_API_KEY;
 
-  if (apiKey) {
-    params.set("api_key", apiKey);
-  }
+  if (apiKey) params.set("api_key", apiKey);
 
   if (options.doi) {
     params.set("filter", `doi:${options.doi}`);
@@ -227,22 +462,57 @@ async function fetchOpenAlexFallback(options: {
 
   try {
     const response = await fetch(`https://api.openalex.org/works?${params}`, {
-      headers: {
-        Accept: "application/json",
-      },
+      headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(OPENALEX_TIMEOUT_MS),
       cache: "no-store",
     });
 
-    if (!response.ok) {
-      return [];
-    }
-
+    if (!response.ok) return [];
     const data = (await response.json()) as OpenAlexResponse;
 
     return (data.results || [])
       .map((work) => normalizeOpenAlexWork(work, Boolean(options.doi)))
       .filter((work) => Boolean(work.title || work.doi));
+  } catch {
+    return [];
+  }
+}
+
+async function fetchEuropePmc(options: {
+  query: string;
+  doi: string;
+  maxResults: number;
+}) {
+  const params = new URLSearchParams({
+    query: options.doi ? `DOI:${options.doi}` : options.query,
+    resultType: "core",
+    format: "json",
+    pageSize: String(Math.min(options.maxResults, 25)),
+    synonym: options.doi ? "false" : "true",
+  });
+
+  const contactEmail = cleanText(process.env.RESEARCHRANKER_CONTACT_EMAIL);
+  if (contactEmail) params.set("email", contactEmail);
+
+  try {
+    const response = await fetch(
+      `https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params}`,
+      {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "ResearchRanker/2.0 academic-search",
+        },
+        signal: AbortSignal.timeout(EUROPE_PMC_TIMEOUT_MS),
+        cache: "no-store",
+      }
+    );
+
+    if (!response.ok) return [];
+    const data = (await response.json()) as EuropePmcResponse;
+
+    return (data.resultList?.result || [])
+      .map(normalizeEuropePmcWork)
+      .filter((item): item is SearchArticle => Boolean(item));
   } catch {
     return [];
   }
@@ -310,10 +580,7 @@ export async function GET(request: Request) {
       toYear > currentYear + 1 ||
       fromYear > toYear
     ) {
-      return Response.json(
-        { error: "Invalid publication year range." },
-        { status: 400 }
-      );
+      return Response.json({ error: "Invalid publication year range." }, { status: 400 });
     }
 
     const requestedMaxResults = parseInteger(
@@ -345,8 +612,17 @@ export async function GET(request: Request) {
       headers: request.headers,
     });
 
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const shouldUseEuropePmc =
+      prepared.isDoi || BIOMEDICAL_FIELDS.has(prepared.field);
+    const europePmcPromise = shouldUseEuropePmc
+      ? fetchEuropePmc({
+          query: prepared.query,
+          doi: prepared.isDoi ? prepared.query : "",
+          maxResults,
+        })
+      : Promise.resolve([] as SearchArticle[]);
 
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const timeoutResponse = new Promise<Response>((resolve) => {
       timeoutId = setTimeout(() => {
         resolve(
@@ -363,43 +639,49 @@ export async function GET(request: Request) {
       timeoutResponse,
     ]);
 
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-
-    if (!response.ok) {
-      return response;
-    }
+    if (timeoutId) clearTimeout(timeoutId);
+    if (!response.ok) return response;
 
     const responseData = await response.clone().json().catch(() => null);
+    const coreResults: SearchArticle[] = Array.isArray(responseData)
+      ? responseData.map((item) => sanitizeQuartileEvidence(item as SearchArticle))
+      : [];
+    const europePmcResults = await europePmcPromise;
 
-    if (Array.isArray(responseData) && responseData.length === 0) {
-      if (prepared.isDoi) {
-        const dataCiteResult = await fetchDataCiteByDoi(prepared.query);
-
-        if (dataCiteResult) {
-          return Response.json([dataCiteResult]);
-        }
-      }
-
-      const fallbackResults = await fetchOpenAlexFallback({
-        query: prepared.query,
-        doi: prepared.isDoi ? prepared.query : "",
-        fromYear,
-        toYear,
-        maxResults,
-      });
-
-      if (fallbackResults.length > 0) {
-        return Response.json(fallbackResults, {
+    if (coreResults.length > 0 || europePmcResults.length > 0) {
+      return Response.json(
+        deduplicateAndMerge(coreResults, europePmcResults, maxResults),
+        {
           headers: prepared.translatedFromArabic
             ? { "X-ResearchRanker-Translated-Query": "1" }
             : undefined,
-        });
+        }
+      );
+    }
+
+    if (prepared.isDoi) {
+      const dataCiteResult = await fetchDataCiteByDoi(prepared.query);
+      if (dataCiteResult) {
+        return Response.json([sanitizeQuartileEvidence(dataCiteResult)]);
       }
     }
 
-    return response;
+    const fallbackResults = await fetchOpenAlexFallback({
+      query: prepared.query,
+      doi: prepared.isDoi ? prepared.query : "",
+      fromYear,
+      toYear,
+      maxResults,
+    });
+
+    return Response.json(
+      fallbackResults.map(sanitizeQuartileEvidence),
+      {
+        headers: prepared.translatedFromArabic
+          ? { "X-ResearchRanker-Translated-Query": "1" }
+          : undefined,
+      }
+    );
   } catch (error) {
     console.error("Global search security wrapper error:", error);
 
