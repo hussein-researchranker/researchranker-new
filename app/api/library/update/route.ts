@@ -2,6 +2,8 @@ import { auth } from "@clerk/nextjs/server";
 import { redis } from "@/lib/redis";
 
 type ReadingStatus = "to-read" | "reading" | "read";
+type ScreeningStatus = "include" | "exclude" | "maybe" | "unscreened";
+type FullTextStatus = "pending" | "retrieved" | "unavailable" | "not-needed";
 
 type UpdatePayload = {
   id?: string;
@@ -10,8 +12,10 @@ type UpdatePayload = {
   notes?: string;
   tags?: string[];
   collection?: string;
-  screeningStatus?: "include" | "exclude" | "maybe" | "unscreened";
+  screeningStatus?: ScreeningStatus;
   exclusionReason?: string;
+  fullTextStatus?: FullTextStatus;
+  duplicateOf?: string;
   extraction?: Record<string, string>;
 };
 
@@ -45,13 +49,14 @@ export async function PATCH(request: Request) {
       return Response.json({ error: "Article not found." }, { status: 404 });
     }
 
-    const allowedStatuses = new Set(["to-read", "reading", "read"]);
-    const allowedScreening = new Set(["include", "exclude", "maybe", "unscreened"]);
+    const allowedReading = new Set<ReadingStatus>(["to-read", "reading", "read"]);
+    const allowedScreening = new Set<ScreeningStatus>(["include", "exclude", "maybe", "unscreened"]);
+    const allowedFullText = new Set<FullTextStatus>(["pending", "retrieved", "unavailable", "not-needed"]);
 
     const next = {
       ...current,
       ...(typeof body.favorite === "boolean" ? { favorite: body.favorite } : {}),
-      ...(body.readingStatus && allowedStatuses.has(body.readingStatus)
+      ...(body.readingStatus && allowedReading.has(body.readingStatus)
         ? { readingStatus: body.readingStatus }
         : {}),
       ...(body.notes !== undefined ? { notes: cleanText(body.notes, 12000) } : {}),
@@ -64,6 +69,12 @@ export async function PATCH(request: Request) {
         : {}),
       ...(body.exclusionReason !== undefined
         ? { exclusionReason: cleanText(body.exclusionReason, 1000) }
+        : {}),
+      ...(body.fullTextStatus && allowedFullText.has(body.fullTextStatus)
+        ? { fullTextStatus: body.fullTextStatus }
+        : {}),
+      ...(body.duplicateOf !== undefined
+        ? { duplicateOf: cleanText(body.duplicateOf, 500) }
         : {}),
       ...(body.extraction && typeof body.extraction === "object"
         ? {
