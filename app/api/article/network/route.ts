@@ -6,6 +6,8 @@ type GraphNode = {
   year?: number;
   doi?: string;
   citedByCount?: number;
+  authors?: string;
+  journal?: string;
   type: "center" | "reference" | "citing" | "related";
 };
 
@@ -14,6 +16,14 @@ type GraphEdge = {
   target: string;
   kind: "references" | "cited-by" | "related";
 };
+
+function openAlexAuthors(work: any) {
+  return (Array.isArray(work?.authorships) ? work.authorships : [])
+    .map((authorship: any) => cleanText(authorship?.author?.display_name))
+    .filter(Boolean)
+    .slice(0, 8)
+    .join(", ");
+}
 
 function nodeFromOpenAlex(work: any, type: GraphNode["type"]): GraphNode | null {
   const id = cleanText(work?.id).replace("https://openalex.org/", "");
@@ -25,6 +35,8 @@ function nodeFromOpenAlex(work: any, type: GraphNode["type"]): GraphNode | null 
     year: Number(work?.publication_year) || undefined,
     doi: cleanText(work?.doi).replace(/^https?:\/\/doi\.org\//i, ""),
     citedByCount: Number(work?.cited_by_count) || 0,
+    authors: openAlexAuthors(work),
+    journal: cleanText(work?.primary_location?.source?.display_name),
     type,
   };
 }
@@ -36,6 +48,9 @@ function openAlexUrl(path: string, params?: Record<string, string>) {
   if (apiKey) url.searchParams.set("api_key", apiKey);
   return url.toString();
 }
+
+const openAlexSelect =
+  "id,display_name,publication_year,doi,cited_by_count,authorships,primary_location";
 
 async function fetchOpenAlexWorks(ids: string[], type: GraphNode["type"]) {
   const unique = Array.from(
@@ -51,7 +66,7 @@ async function fetchOpenAlexWorks(ids: string[], type: GraphNode["type"]) {
     openAlexUrl("works", {
       filter: `openalex:${unique.join("|")}`,
       per_page: "8",
-      select: "id,display_name,publication_year,doi,cited_by_count",
+      select: openAlexSelect,
     }),
     { headers: { "User-Agent": "ResearchRanker/1.0" }, next: { revalidate: 21600 } }
   );
@@ -68,22 +83,35 @@ function extractDoiFromPid(value: unknown) {
   return match?.[1]?.replace(/[;,]+$/, "").toLowerCase() || "";
 }
 
+function crossrefAuthors(work: any) {
+  return (Array.isArray(work?.author) ? work.author : [])
+    .map((author: any) =>
+      cleanText(author?.name || [author?.given, author?.family].filter(Boolean).join(" "))
+    )
+    .filter(Boolean)
+    .slice(0, 8)
+    .join(", ");
+}
+
 async function crossrefNode(doi: string, type: GraphNode["type"]): Promise<GraphNode> {
   try {
     const response = await fetch(
-      `https://api.crossref.org/works/${encodeURIComponent(doi)}?select=DOI,title,published,issued,is-referenced-by-count`,
+      `https://api.crossref.org/works/${encodeURIComponent(doi)}`,
       { headers: { "User-Agent": "ResearchRanker/1.0" }, next: { revalidate: 21600 } }
     );
     if (response.ok) {
       const data = await response.json();
       const work = data?.message || {};
-      const parts = work?.published?.["date-parts"]?.[0] || work?.issued?.["date-parts"]?.[0] || [];
+      const parts =
+        work?.published?.["date-parts"]?.[0] || work?.issued?.["date-parts"]?.[0] || [];
       return {
         id: `doi:${doi}`,
         title: cleanText(work?.title?.[0]) || doi,
         year: Number(parts?.[0]) || undefined,
         doi: cleanText(work?.DOI || doi),
         citedByCount: Number(work?.["is-referenced-by-count"]) || 0,
+        authors: crossrefAuthors(work),
+        journal: cleanText(work?.["container-title"]?.[0]),
         type,
       };
     }
@@ -168,14 +196,16 @@ async function buildOpenAlexNetwork(doi: string) {
   const center = nodeFromOpenAlex(work, "center");
   if (!center) return null;
 
-  const referenceIds = Array.isArray(work?.referenced_works) ? work.referenced_works.slice(0, 8) : [];
+  const referenceIds = Array.isArray(work?.referenced_works)
+    ? work.referenced_works.slice(0, 8)
+    : [];
   const relatedIds = Array.isArray(work?.related_works) ? work.related_works.slice(0, 8) : [];
   const citedResponse = await fetch(
     openAlexUrl("works", {
       filter: `cites:${center.id}`,
       sort: "-cited_by_count",
       per_page: "8",
-      select: "id,display_name,publication_year,doi,cited_by_count",
+      select: openAlexSelect,
     }),
     { headers: { "User-Agent": "ResearchRanker/1.0" }, next: { revalidate: 21600 } }
   );
@@ -190,9 +220,21 @@ async function buildOpenAlexNetwork(doi: string) {
 
   const nodes = [center, ...references, ...citing, ...related];
   const edges: GraphEdge[] = [
-    ...references.map((node) => ({ source: center.id, target: node.id, kind: "references" as const })),
-    ...citing.map((node) => ({ source: node.id, target: center.id, kind: "cited-by" as const })),
-    ...related.map((node) => ({ source: center.id, target: node.id, kind: "related" as const })),
+    ...references.map((node) => ({
+      source: center.id,
+      target: node.id,
+      kind: "references" as const,
+    })),
+    ...citing.map((node) => ({
+      source: node.id,
+      target: center.id,
+      kind: "cited-by" as const,
+    })),
+    ...related.map((node) => ({
+      source: center.id,
+      target: node.id,
+      kind: "related" as const,
+    })),
   ];
   return { center, nodes, edges, source: "OpenAlex", checkedAt: new Date().toISOString() };
 }
