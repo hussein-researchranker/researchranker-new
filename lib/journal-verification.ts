@@ -145,7 +145,7 @@ function extractQuartile(row: Record<string, string>): Quartile | null {
 async function loadScimagoSnapshot() {
   if (scimagoCache) return scimagoCache;
 
-  const filePath = path.join(process.cwd(), "public", "scimagojr.csv");
+  const filePath = path.join(process.cwd(), "data", "scimagojr.csv");
   const content = await readFile(filePath, "utf8");
   const lines = content.split(/\r?\n/).filter(Boolean);
 

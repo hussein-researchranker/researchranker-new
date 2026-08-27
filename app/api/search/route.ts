@@ -140,7 +140,7 @@ async function loadScimagoData() {
     return scimagoCache;
   }
 
-  const filePath = path.join(process.cwd(), "public", "scimagojr.csv");
+  const filePath = path.join(process.cwd(), "data", "scimagojr.csv");
   const fileContent = await readFile(filePath, "utf8");
 
   const lines = fileContent

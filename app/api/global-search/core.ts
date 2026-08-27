@@ -1189,7 +1189,7 @@ async function loadScimagoJournals() {
     return scimagoCache;
   }
 
-  const filePath = path.join(process.cwd(), "public", "scimagojr.csv");
+  const filePath = path.join(process.cwd(), "data", "scimagojr.csv");
   const fileContent = await readFile(filePath, "utf8");
 
   const lines = fileContent
@@ -1319,6 +1319,20 @@ function enrichWithScimago(
     return article;
   }
 
+  const verifiedByIssn = match.confidence === "ISSN exact match";
+
+  if (!verifiedByIssn) {
+    return {
+      ...article,
+      quartile: "Not found",
+      sjr: "",
+      hIndex: "",
+      indexingStatus:
+        "SCImago title candidate only - quartile not verified by exact ISSN",
+      matchConfidence: match.confidence,
+    };
+  }
+
   return {
     ...article,
     quartile: match.journal.quartile || article.quartile,
@@ -1327,8 +1341,8 @@ function enrichWithScimago(
     publisher: match.journal.publisher || article.publisher,
     indexingStatus:
       match.journal.quartile && match.journal.quartile !== "Not found"
-        ? `SCImago indexed / ${match.journal.quartile}`
-        : "SCImago indexed / quartile not clearly found",
+        ? `SCImago snapshot exact ISSN match / ${match.journal.quartile}`
+        : "SCImago snapshot exact ISSN match / quartile not clearly found",
     matchConfidence: match.confidence,
   };
 }
@@ -1457,7 +1471,7 @@ async function fetchCrossrefByDoi(doi: string) {
       next: {
         revalidate: 60 * 60,
       },
-    signal: AbortSignal.timeout(CORE_CROSSREF_TIMEOUT_MS),
+      signal: AbortSignal.timeout(CORE_CROSSREF_TIMEOUT_MS),
     }
   );
 

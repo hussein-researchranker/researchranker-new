@@ -1,3 +1,5 @@
+import path from "path";
+import { access } from "fs/promises";
 import { checkRedisHealth } from "@/lib/redis";
 
 export const runtime = "nodejs";
@@ -5,6 +7,13 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const storage = await checkRedisHealth();
+  let journalSnapshotAvailable = false;
+  try {
+    await access(path.join(process.cwd(), "data", "scimagojr.csv"));
+    journalSnapshotAvailable = true;
+  } catch {
+    journalSnapshotAvailable = false;
+  }
 
   const authConfigured = Boolean(
     process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY
@@ -27,6 +36,7 @@ export async function GET() {
         authenticationConfigured: authConfigured,
         aiConfigured,
         scholarlySearchAvailable: true,
+        journalSnapshotAvailable,
         persistentStorage: {
           configured: storage.configured,
           healthy: storage.ok,
