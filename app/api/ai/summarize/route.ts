@@ -1,3 +1,6 @@
+import { auth } from "@clerk/nextjs/server";
+import { checkRateLimit } from "@/lib/rate-limit";
+
 type GeminiSummaryResponse = {
   objective: string;
   methodology: string;
@@ -9,6 +12,12 @@ type GeminiSummaryResponse = {
 
 const GEMINI_MODEL = "gemini-2.5-flash-lite";
 const MAX_ABSTRACT_CHARS = 3000;
+const MAX_TITLE_CHARS = 500;
+const MAX_JOURNAL_CHARS = 300;
+const MAX_AUTHORS_CHARS = 1200;
+const MAX_PUBDATE_CHARS = 100;
+const GEMINI_TIMEOUT_MS = 15_000;
+const SUMMARY_LIMIT_PER_MINUTE = 20;
 
 function cleanText(value: unknown) {
   return String(value ?? "")
@@ -16,7 +25,7 @@ function cleanText(value: unknown) {
     .trim();
 }
 
-function limitText(value: string, maxChars = MAX_ABSTRACT_CHARS) {
+function limitText(value: unknown, maxChars: number) {
   const cleanValue = cleanText(value);
 
   if (cleanValue.length <= maxChars) {
@@ -26,7 +35,9 @@ function limitText(value: string, maxChars = MAX_ABSTRACT_CHARS) {
   return `${cleanValue.slice(0, maxChars)}...`;
 }
 
-function normalizeSummary(value: Partial<GeminiSummaryResponse>): GeminiSummaryResponse {
+function normalizeSummary(
+  value: Partial<GeminiSummaryResponse>
+): GeminiSummaryResponse {
   const keyFindings = Array.isArray(value.keyFindings)
     ? value.keyFindings.map(cleanText).filter(Boolean).slice(0, 5)
     : [];
@@ -41,7 +52,9 @@ function normalizeSummary(value: Partial<GeminiSummaryResponse>): GeminiSummaryR
     keyFindings:
       keyFindings.length > 0
         ? keyFindings
-        : ["The key findings could not be clearly extracted from the abstract."],
+        : [
+            "The key findings could not be clearly extracted from the abstract.",
+          ],
     conclusion:
       cleanText(value.conclusion) ||
       "The conclusion was not clearly specified in the abstract.",
@@ -50,7 +63,7 @@ function normalizeSummary(value: Partial<GeminiSummaryResponse>): GeminiSummaryR
       "This article may be useful for understanding the research topic described in the abstract.",
     limitationNote:
       cleanText(value.limitationNote) ||
-        "This AI summary is based only on the available title and abstract.",
+      "This AI summary is based only on the available title and abstract.",
   };
 }
 
@@ -72,8 +85,46 @@ function safeParseJson(text: string): GeminiSummaryResponse {
   }
 }
 
+function isTimeoutError(error: unknown) {
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  );
+}
+
 export async function POST(request: Request) {
   try {
+    const { userId } = await auth();
+
+    if (!userId) {
+      return Response.json(
+        { error: "You must sign in to use AI summaries." },
+        { status: 401 }
+      );
+    }
+
+    const rateLimit = await checkRateLimit({
+      key: `ai-summary:${userId}`,
+      limit: SUMMARY_LIMIT_PER_MINUTE,
+      windowSeconds: 60,
+    });
+
+    if (!rateLimit.success) {
+      return Response.json(
+        {
+          error:
+            "AI summary rate limit reached. Please wait before trying again.",
+          retryAfterSeconds: rateLimit.retryAfterSeconds,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateLimit.retryAfterSeconds),
+          },
+        }
+      );
+    }
+
     const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
@@ -88,11 +139,11 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
-    const title = cleanText(body?.title);
-    const journal = cleanText(body?.journal);
-    const abstract = limitText(body?.abstract || "");
-    const authors = cleanText(body?.authors);
-    const pubdate = cleanText(body?.pubdate);
+    const title = limitText(body?.title, MAX_TITLE_CHARS);
+    const journal = limitText(body?.journal, MAX_JOURNAL_CHARS);
+    const abstract = limitText(body?.abstract, MAX_ABSTRACT_CHARS);
+    const authors = limitText(body?.authors, MAX_AUTHORS_CHARS);
+    const pubdate = limitText(body?.pubdate, MAX_PUBDATE_CHARS);
 
     if (!title && !abstract) {
       return Response.json(
@@ -173,6 +224,7 @@ Abstract: ${abstract}
             },
           },
         }),
+        signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
       }
     );
 
@@ -230,6 +282,15 @@ Abstract: ${abstract}
     return Response.json(summary);
   } catch (error) {
     console.error("AI summarize route error:", error);
+
+    if (isTimeoutError(error)) {
+      return Response.json(
+        {
+          error: "AI summary timed out. Please try again.",
+        },
+        { status: 504 }
+      );
+    }
 
     return Response.json(
       {

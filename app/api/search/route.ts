@@ -1,5 +1,7 @@
 import path from "path";
 import { readFile } from "fs/promises";
+import { auth } from "@clerk/nextjs/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 type MatchConfidence =
   | "Exact title match"
@@ -37,6 +39,9 @@ type ScimagoJournal = {
 
 const PUBMED_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
 const DEFAULT_MAX_RESULTS = 50;
+const MAX_QUERY_CHARS = 500;
+const PUBMED_TIMEOUT_MS = 12_000;
+const SEARCH_LIMIT_PER_MINUTE = 20;
 
 let scimagoCache: ScimagoJournal[] | null = null;
 
@@ -199,31 +204,12 @@ function matchScimagoJournal(
     };
   }
 
-  const partialMatch = scimagoJournals.find(
-    (scimagoJournal: ScimagoJournal) => {
-      if (!scimagoJournal.normalizedTitle) {
-        return false;
-      }
-
-      return (
-        scimagoJournal.normalizedTitle.includes(normalizedJournal) ||
-        normalizedJournal.includes(scimagoJournal.normalizedTitle)
-      );
-    }
-  );
-
-  if (partialMatch) {
-    return {
-      journal: partialMatch,
-      confidence: "Approximate title match",
-    };
-  }
-
   return {
     journal: null,
     confidence: "Not matched",
   };
 }
+
 function buildIndexingStatus(
   match: ScimagoJournal | null,
   source: string
@@ -281,7 +267,16 @@ function decodeXml(value: string) {
 }
 
 function stripXmlTags(value: string) {
-  return decodeXml(value.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+  return decodeXml(value.replace(/<[^>]+>/g, " "))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isTimeoutError(error: unknown) {
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  );
 }
 
 async function fetchPubMedAbstracts(ids: string[]) {
@@ -298,6 +293,7 @@ async function fetchPubMedAbstracts(ids: string[]) {
 
   const fetchResponse = await fetch(fetchUrl.toString(), {
     next: { revalidate: 60 * 60 },
+    signal: AbortSignal.timeout(PUBMED_TIMEOUT_MS),
   });
 
   if (!fetchResponse.ok) {
@@ -305,7 +301,8 @@ async function fetchPubMedAbstracts(ids: string[]) {
   }
 
   const xml = await fetchResponse.text();
-  const articleBlocks = xml.match(/<PubmedArticle>[\s\S]*?<\/PubmedArticle>/g) || [];
+  const articleBlocks =
+    xml.match(/<PubmedArticle>[\s\S]*?<\/PubmedArticle>/g) || [];
 
   articleBlocks.forEach((block) => {
     const pmidMatch = block.match(/<PMID[^>]*>([\s\S]*?)<\/PMID>/);
@@ -324,6 +321,7 @@ async function fetchPubMedAbstracts(ids: string[]) {
 
   return abstractByPmid;
 }
+
 function applyFieldFilter(query: string, field: string) {
   const cleanQuery = query.trim();
 
@@ -362,8 +360,7 @@ function applyFieldFilter(query: string, field: string) {
       "(business OR management OR marketing OR organization OR leadership)",
     economics:
       "(economics OR economic OR finance OR market OR trade OR development)",
-    law:
-      "(law OR legal OR legislation OR regulation OR policy)",
+    law: "(law OR legal OR legislation OR regulation OR policy)",
     "arts-humanities":
       "(humanities OR philosophy OR arts OR culture OR ethics)",
     linguistics:
@@ -384,6 +381,7 @@ function applyFieldFilter(query: string, field: string) {
 
   return `(${cleanQuery}) AND ${filter}`;
 }
+
 function buildPubMedQuery(query: string, fromYear: string, toYear: string) {
   const cleanQuery = cleanText(query);
   const startYear = /^\d{4}$/.test(fromYear) ? fromYear : "2020";
@@ -396,17 +394,53 @@ function buildPubMedQuery(query: string, fromYear: string, toYear: string) {
 
 export async function GET(request: Request) {
   try {
+    const { userId } = await auth();
+
+    if (!userId) {
+      return Response.json(
+        { error: "You must sign in to search PubMed." },
+        { status: 401 }
+      );
+    }
+
+    const rateLimit = await checkRateLimit({
+      key: `pubmed-search:${userId}`,
+      limit: SEARCH_LIMIT_PER_MINUTE,
+      windowSeconds: 60,
+    });
+
+    if (!rateLimit.success) {
+      return Response.json(
+        {
+          error: "Search rate limit reached. Please try again shortly.",
+          retryAfterSeconds: rateLimit.retryAfterSeconds,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateLimit.retryAfterSeconds),
+          },
+        }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
 
-    const query = cleanText(searchParams.get("query"));
+    const query = cleanText(searchParams.get("query")).slice(
+      0,
+      MAX_QUERY_CHARS
+    );
     const field = cleanText(searchParams.get("field") || "all");
     const fromYear = cleanText(searchParams.get("fromYear") || "2020");
     const toYear = cleanText(
       searchParams.get("toYear") || new Date().getFullYear()
     );
-    const maxResults = Number(
+    const rawMaxResults = Number(
       searchParams.get("maxResults") || DEFAULT_MAX_RESULTS
     );
+    const maxResults = Number.isFinite(rawMaxResults)
+      ? Math.min(Math.max(rawMaxResults, 1), 500)
+      : DEFAULT_MAX_RESULTS;
 
     if (!query) {
       return Response.json(
@@ -417,20 +451,22 @@ export async function GET(request: Request) {
 
     const scimagoJournals = await loadScimagoData();
     const fieldFilteredQuery = applyFieldFilter(query, field);
-const pubmedQuery = buildPubMedQuery(fieldFilteredQuery, fromYear, toYear);
+    const pubmedQuery = buildPubMedQuery(
+      fieldFilteredQuery,
+      fromYear,
+      toYear
+    );
 
     const searchUrl = new URL(`${PUBMED_BASE_URL}/esearch.fcgi`);
     searchUrl.searchParams.set("db", "pubmed");
     searchUrl.searchParams.set("term", pubmedQuery);
     searchUrl.searchParams.set("retmode", "json");
-    searchUrl.searchParams.set(
-      "retmax",
-      String(Math.min(Math.max(maxResults, 1), 500))
-    );
+    searchUrl.searchParams.set("retmax", String(maxResults));
     searchUrl.searchParams.set("sort", "pub date");
 
     const searchResponse = await fetch(searchUrl.toString(), {
       next: { revalidate: 60 * 30 },
+      signal: AbortSignal.timeout(PUBMED_TIMEOUT_MS),
     });
 
     if (!searchResponse.ok) {
@@ -451,6 +487,7 @@ const pubmedQuery = buildPubMedQuery(fieldFilteredQuery, fromYear, toYear);
 
     const summaryResponse = await fetch(summaryUrl.toString(), {
       next: { revalidate: 60 * 30 },
+      signal: AbortSignal.timeout(PUBMED_TIMEOUT_MS),
     });
 
     if (!summaryResponse.ok) {
@@ -478,32 +515,42 @@ const pubmedQuery = buildPubMedQuery(fieldFilteredQuery, fromYear, toYear);
           cleanText(record.fulljournalname || record.source) ||
           "Unknown journal";
 
-const scimagoMatchResult = matchScimagoJournal(journal, scimagoJournals);
-const scimagoMatch = scimagoMatchResult.journal;
+        const scimagoMatchResult = matchScimagoJournal(
+          journal,
+          scimagoJournals
+        );
+        const scimagoMatch = scimagoMatchResult.journal;
 
-return {
-  pmid,
-  title: cleanText(record.title) || "No title available",
-  journal,
-  pubdate: cleanText(record.pubdate) || "No date available",
-  authors: getAuthors(article),
-  doi: getDoi(article),
-  source: "PubMed",
-  sourceUrl: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
-  abstract: abstractByPmid[pmid] || "",
-  quartile: scimagoMatch?.quartile || "Not found",
-  indexingStatus: buildIndexingStatus(scimagoMatch, "PubMed"),
-  sjr: scimagoMatch?.sjr || "",
-  hIndex: scimagoMatch?.hIndex || "",
-  publisher: scimagoMatch?.publisher || "",
-  issn: scimagoMatch?.issn || "",
-  matchConfidence: scimagoMatchResult.confidence,
-};
+        return {
+          pmid,
+          title: cleanText(record.title) || "No title available",
+          journal,
+          pubdate: cleanText(record.pubdate) || "No date available",
+          authors: getAuthors(article),
+          doi: getDoi(article),
+          source: "PubMed",
+          sourceUrl: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
+          abstract: abstractByPmid[pmid] || "",
+          quartile: scimagoMatch?.quartile || "Not found",
+          indexingStatus: buildIndexingStatus(scimagoMatch, "PubMed"),
+          sjr: scimagoMatch?.sjr || "",
+          hIndex: scimagoMatch?.hIndex || "",
+          publisher: scimagoMatch?.publisher || "",
+          issn: scimagoMatch?.issn || "",
+          matchConfidence: scimagoMatchResult.confidence,
+        };
       });
 
     return Response.json(articles);
   } catch (error) {
     console.error("Search API error:", error);
+
+    if (isTimeoutError(error)) {
+      return Response.json(
+        { error: "PubMed search timed out. Please try again." },
+        { status: 504 }
+      );
+    }
 
     return Response.json({ error: "Search failed." }, { status: 500 });
   }

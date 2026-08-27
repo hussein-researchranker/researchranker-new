@@ -1,5 +1,9 @@
 import { auth } from "@clerk/nextjs/server";
 import { redis } from "@/lib/redis";
+import { checkRateLimit } from "@/lib/rate-limit";
+
+const LIBRARY_WRITE_LIMIT_PER_MINUTE = 60;
+const MAX_ID_CHARS = 1500;
 
 function cleanText(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -16,8 +20,32 @@ export async function POST(request: Request) {
       );
     }
 
+    const rateLimit = await checkRateLimit({
+      key: `library-write:${userId}`,
+      limit: LIBRARY_WRITE_LIMIT_PER_MINUTE,
+      windowSeconds: 60,
+    });
+
+    if (!rateLimit.success) {
+      return Response.json(
+        {
+          error: "Library write rate limit reached. Please try again shortly.",
+          retryAfterSeconds: rateLimit.retryAfterSeconds,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateLimit.retryAfterSeconds),
+          },
+        }
+      );
+    }
+
     const body = await request.json();
-    const rawId = cleanText(body?.id || body?.pmid || body?.title);
+    const rawId = cleanText(body?.id || body?.pmid || body?.title).slice(
+      0,
+      MAX_ID_CHARS
+    );
 
     if (!rawId) {
       return Response.json(

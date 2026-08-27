@@ -1,5 +1,6 @@
 import path from "path";
 import { readFile } from "fs/promises";
+import { auth } from "@clerk/nextjs/server";
 import IraqiJournalsExplorer, {
   IraqiJournal,
   JournalNews,
@@ -19,6 +20,7 @@ async function loadIraqiJournalsData(): Promise<IraqiJournalsData> {
 }
 
 export default async function IraqiJournalsPage() {
+  await auth.protect();
   const data = await loadIraqiJournalsData();
 
   return (

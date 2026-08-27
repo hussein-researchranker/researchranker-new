@@ -3,13 +3,29 @@
 import { useState } from "react";
 import Link from "next/link";
 
-type Quartile = "Q1" | "Q2" | "Q3" | "Q4";
+type Quartile = "All" | "Q1" | "Q2" | "Q3" | "Q4";
 
 type FieldOption = {
   value: string;
   labelAr: string;
   labelEn: string;
 };
+
+const quartileOptions: Array<{
+  value: Quartile;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "All",
+    label: "الكل",
+    description: "الأفضل للبحث العام و DOI",
+  },
+  { value: "Q1", label: "Q1", description: "الربع الأول" },
+  { value: "Q2", label: "Q2", description: "الربع الثاني" },
+  { value: "Q3", label: "Q3", description: "الربع الثالث" },
+  { value: "Q4", label: "Q4", description: "الربع الرابع" },
+];
 
 const fieldOptions: FieldOption[] = [
   { value: "all", labelAr: "كل التخصصات", labelEn: "All fields" },
@@ -36,18 +52,25 @@ const fieldOptions: FieldOption[] = [
   { value: "geography", labelAr: "الجغرافية", labelEn: "Geography" },
 ];
 
+function looksLikeDoi(value: string) {
+  return /10\.\d{4,9}\//i.test(value);
+}
+
 export default function SearchWizard() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [quartile, setQuartile] = useState<Quartile | "">("");
+  const [quartile, setQuartile] = useState<Quartile>("All");
   const [field, setField] = useState("all");
   const [query, setQuery] = useState("");
 
   function startSearch() {
-    if (!quartile || !query.trim()) return;
+    const cleanQuery = query.trim();
 
+    if (!cleanQuery) return;
+
+    const effectiveQuartile = looksLikeDoi(cleanQuery) ? "All" : quartile;
     const params = new URLSearchParams({
-      q: query.trim(),
-      quartile,
+      q: cleanQuery,
+      quartile: effectiveQuartile,
       field,
     });
 
@@ -64,7 +87,7 @@ export default function SearchWizard() {
               البحث عن المصادر خطوة بخطوة
             </h1>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              اختر الربع أولاً، ثم التخصص، وبعدها اكتب عنوان البحث أو الكلمات المفتاحية أو DOI.
+              ابحث بالإنجليزية أو العربية، أو الصق DOI مباشرة. للبحث عن موضوع عام اختر "الكل" حتى لا يتم استبعاد نتائج صحيحة بسبب الربع.
             </p>
           </div>
 
@@ -79,21 +102,27 @@ export default function SearchWizard() {
         <div className="mb-8 grid gap-3 sm:grid-cols-3">
           <div
             className={`rounded-2xl border p-4 text-center text-sm font-bold ${
-              step === 1 ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-500"
+              step === 1
+                ? "border-blue-600 bg-blue-50 text-blue-700"
+                : "border-slate-200 bg-slate-50 text-slate-500"
             }`}
           >
             1. الربع
           </div>
           <div
             className={`rounded-2xl border p-4 text-center text-sm font-bold ${
-              step === 2 ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-500"
+              step === 2
+                ? "border-blue-600 bg-blue-50 text-blue-700"
+                : "border-slate-200 bg-slate-50 text-slate-500"
             }`}
           >
             2. التخصص
           </div>
           <div
             className={`rounded-2xl border p-4 text-center text-sm font-bold ${
-              step === 3 ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-500"
+              step === 3
+                ? "border-blue-600 bg-blue-50 text-blue-700"
+                : "border-slate-200 bg-slate-50 text-slate-500"
             }`}
           >
             3. البحث
@@ -105,30 +134,36 @@ export default function SearchWizard() {
             <h2 className="text-xl font-black text-slate-900">
               اختر الربع المطلوب
             </h2>
-            <p className="mt-2 text-sm text-slate-600">
-              اختر Q1 أو Q2 أو Q3 أو Q4 قبل الانتقال إلى التخصص.
+            <p className="mt-2 text-sm leading-7 text-slate-600">
+              اختر "الكل" إذا كان هدفك العثور على البحث أولاً. يمكنك اختيار Q1–Q4 إذا كنت تريد تقييد العرض بربع محدد.
             </p>
 
-            <div className="mt-6 grid gap-4 sm:grid-cols-4">
-              {(["Q1", "Q2", "Q3", "Q4"] as Quartile[]).map((item) => (
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              {quartileOptions.map((item) => (
                 <button
-                  key={item}
+                  key={item.value}
                   type="button"
-onClick={() => {
-  setQuartile(item);
-  setStep(2);
-}}                  className={`rounded-2xl border px-5 py-6 text-xl font-black transition ${
-                    quartile === item
+                  onClick={() => {
+                    setQuartile(item.value);
+                    setStep(2);
+                  }}
+                  className={`rounded-2xl border px-4 py-5 text-center transition ${
+                    quartile === item.value
                       ? "border-blue-600 bg-blue-600 text-white"
                       : "border-slate-200 bg-slate-50 text-slate-800 hover:bg-slate-100"
                   }`}
                 >
-                  {item}
+                  <p className="text-xl font-black">{item.label}</p>
+                  <p
+                    className={`mt-2 text-xs font-bold ${
+                      quartile === item.value ? "text-blue-100" : "text-slate-500"
+                    }`}
+                  >
+                    {item.description}
+                  </p>
                 </button>
               ))}
             </div>
-
-            
           </div>
         )}
 
@@ -138,7 +173,7 @@ onClick={() => {
               اختر التخصص
             </h2>
             <p className="mt-2 text-sm leading-7 text-slate-600">
-              اختيار التخصص يساعد على تقليل النتائج غير المرتبطة. مثلاً: عند اختيار علوم الحاسوب، سنرسل لاحقاً فلترة أدق إلى API.
+              التخصص يساعد النظام على فهم المصطلحات، خصوصاً عند البحث باللغة العربية.
             </p>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
@@ -146,50 +181,54 @@ onClick={() => {
                 <button
                   key={option.value}
                   type="button"
-onClick={() => {
-  setField(option.value);
-  setStep(3);
-}}                  className={`rounded-2xl border p-4 text-right transition ${
+                  onClick={() => {
+                    setField(option.value);
+                    setStep(3);
+                  }}
+                  className={`rounded-2xl border p-4 text-right transition ${
                     field === option.value
                       ? "border-blue-600 bg-blue-50"
                       : "border-slate-200 bg-slate-50 hover:bg-slate-100"
                   }`}
                 >
                   <p className="font-black text-slate-900">{option.labelAr}</p>
-                  <p className="mt-1 text-xs font-bold text-slate-500">{option.labelEn}</p>
+                  <p className="mt-1 text-xs font-bold text-slate-500">
+                    {option.labelEn}
+                  </p>
                 </button>
               ))}
             </div>
 
-           <div className="mt-8">
-  <button
-    type="button"
-    onClick={() => setStep(1)}
-    className="w-full rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700"
-  >
-    رجوع
-  </button>
-</div>
+            <div className="mt-8">
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                className="w-full rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700"
+              >
+                رجوع
+              </button>
+            </div>
           </div>
         )}
 
         {step === 3 && (
           <div>
             <h2 className="text-xl font-black text-slate-900">
-              اكتب موضوع البحث
+              اكتب موضوع البحث أو DOI
             </h2>
-            <p className="mt-2 text-sm text-slate-600">
-              يمكنك كتابة عنوان، كلمات مفتاحية، DOI، أو مصطلحات عربية/إنجليزية.
+            <p className="mt-2 text-sm leading-7 text-slate-600">
+              يمكنك كتابة الموضوع بالعربية أو الإنجليزية. إذا أدخلت DOI أو رابط doi.org فسيتم البحث عنه مباشرة بدون تقييد بالربع.
             </p>
 
             <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="mb-4 grid gap-3 sm:grid-cols-2">
                 <div className="rounded-xl bg-white p-3 text-sm font-bold text-slate-700">
-                  الربع المختار: {quartile}
+                  الربع المختار: {quartile === "All" ? "الكل" : quartile}
                 </div>
                 <div className="rounded-xl bg-white p-3 text-sm font-bold text-slate-700">
                   التخصص:{" "}
-                  {fieldOptions.find((option) => option.value === field)?.labelAr || "كل التخصصات"}
+                  {fieldOptions.find((option) => option.value === field)?.labelAr ||
+                    "كل التخصصات"}
                 </div>
               </div>
 
@@ -199,9 +238,15 @@ onClick={() => {
                 onKeyDown={(event) => {
                   if (event.key === "Enter") startSearch();
                 }}
-                placeholder="مثال: chronic kidney disease أو الذكاء الاصطناعي أو DOI"
+                placeholder="مثال: الذكاء الاصطناعي في تشخيص أمراض القلب أو 10.xxxx/xxxxx"
                 className="w-full rounded-xl border border-slate-300 bg-white p-4 text-sm outline-none focus:border-blue-500"
               />
+
+              {looksLikeDoi(query) && (
+                <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-700">
+                  تم اكتشاف DOI. سيتم تنفيذ بحث مباشر عن المعرف وتجاهل فلتر الربع حتى لا يتم إخفاء البحث الصحيح.
+                </p>
+              )}
             </div>
 
             <div className="mt-6 flex gap-3">
