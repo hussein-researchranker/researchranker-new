@@ -44,6 +44,8 @@ export async function PATCH(request: Request) {
     const collectionIds = uniqueStrings(body.collectionIds);
     const readingStatus = cleanText(body.readingStatus) as ReadingStatus;
     const screeningStatus = cleanText(body.screeningStatus) as ScreeningStatus;
+    const titleAbstractStatus = cleanText(body.titleAbstractStatus) as ScreeningStatus;
+    const fullTextStatus = cleanText(body.fullTextStatus) as ScreeningStatus;
 
     const extraction =
       body.extraction && typeof body.extraction === "object"
@@ -65,6 +67,22 @@ export async function PATCH(request: Request) {
       ...(screeningStatuses.has(screeningStatus) ? { screeningStatus } : {}),
       ...(typeof body.screeningReason === "string"
         ? { screeningReason: cleanText(body.screeningReason) }
+        : {}),
+      ...(screeningStatuses.has(titleAbstractStatus)
+        ? {
+            titleAbstractStatus,
+            screeningStatus: titleAbstractStatus,
+          }
+        : {}),
+      ...(typeof body.titleAbstractReason === "string"
+        ? {
+            titleAbstractReason: cleanText(body.titleAbstractReason),
+            screeningReason: cleanText(body.titleAbstractReason),
+          }
+        : {}),
+      ...(screeningStatuses.has(fullTextStatus) ? { fullTextStatus } : {}),
+      ...(typeof body.fullTextReason === "string"
+        ? { fullTextReason: cleanText(body.fullTextReason) }
         : {}),
       ...(extraction ? { extraction } : {}),
       updatedAt: new Date().toISOString(),
