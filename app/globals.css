@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f6f8fb;
+  --foreground: #0f172a;
 }
 
 @theme inline {
@@ -12,72 +12,87 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+  color-scheme: light;
+  scroll-behavior: smooth;
 }
 
 body {
+  min-height: 100vh;
+  margin: 0;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
-/* ResearchRanker global click feedback */
+
+::selection {
+  background: rgba(37, 99, 235, 0.18);
+  color: #0f172a;
+}
+
+button,
+select,
+input,
+textarea,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
 button,
 select,
 a.rounded-xl,
-a.rounded-full {
+a.rounded-full,
+a.rounded-2xl,
+a.rounded-3xl {
   transition:
-    transform 120ms ease,
-    box-shadow 120ms ease,
-    background-color 120ms ease,
-    border-color 120ms ease,
-    opacity 120ms ease;
-}
-
-button:hover:not(:disabled),
-select:hover:not(:disabled),
-a.rounded-xl:hover,
-a.rounded-full:hover {
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    opacity 140ms ease;
 }
 
 button:active:not(:disabled),
 select:active:not(:disabled),
 a.rounded-xl:active,
-a.rounded-full:active {
-  transform: translateY(1px) scale(0.96);
-  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.12);
+a.rounded-full:active,
+a.rounded-2xl:active,
+a.rounded-3xl:active {
+  transform: translateY(1px) scale(0.985);
 }
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.65;
 }
 
 button:focus-visible,
 select:focus-visible,
-a.rounded-xl:focus-visible,
-a.rounded-full:focus-visible {
-  outline: 3px solid rgba(37, 99, 235, 0.35);
+input:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.3);
   outline-offset: 2px;
 }
 
-/* Reduce animation for users who prefer less motion */
 @media (prefers-reduced-motion: reduce) {
-  button,
-  select,
-  a.rounded-xl,
-  a.rounded-full {
-    transition: none;
+  html {
+    scroll-behavior: auto;
   }
 
-  button:active:not(:disabled),
-  select:active:not(:disabled),
-  a.rounded-xl:active,
-  a.rounded-full:active {
-    transform: none;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
