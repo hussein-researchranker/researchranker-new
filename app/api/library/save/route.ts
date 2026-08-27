@@ -35,11 +35,13 @@ function limitText(value: unknown, maxChars: number) {
 }
 
 function makeArticleId(article: LibraryArticle) {
+  const doi = limitText(article.doi, 300);
   const pmid = limitText(article.pmid, 100);
   const title = limitText(article.title, 1000);
   const providedId = limitText(article.id, 500);
 
   if (providedId) return providedId;
+  if (doi) return doi;
   if (pmid) return pmid;
 
   return encodeURIComponent(title.toLowerCase()).slice(0, 1500);
@@ -87,18 +89,18 @@ export async function POST(request: Request) {
     }
 
     const body = (await request.json()) as LibraryArticle;
-
     const pmid = limitText(body.pmid, 100);
+    const doi = limitText(body.doi, 300);
     const title = limitText(body.title, 1000);
 
-    if (!pmid && !title) {
+    if (!pmid && !doi && !title) {
       return Response.json(
-        { error: "Missing article PMID or title." },
+        { error: "Missing article DOI, PMID, or title." },
         { status: 400 }
       );
     }
 
-    const id = makeArticleId({ ...body, pmid, title });
+    const id = makeArticleId({ ...body, pmid, doi, title });
 
     if (!id) {
       return Response.json(
@@ -117,12 +119,12 @@ export async function POST(request: Request) {
       journal: limitText(body.journal, 500),
       pubdate: limitText(body.pubdate, 100),
       authors: limitText(body.authors, 3000),
-      doi: limitText(body.doi, 300),
+      doi,
       abstract: limitText(body.abstract, 12_000),
-      source: limitText(body.source || "PubMed", 100),
+      source: limitText(body.source || "Academic metadata", 100),
       sourceUrl: limitText(body.sourceUrl || body.pubmedUrl, 2000),
       pubmedUrl: limitText(body.pubmedUrl || body.sourceUrl, 2000),
-      quartile: limitText(body.quartile || "Not found", 50),
+      quartile: limitText(body.quartile || "Not verified", 50),
       indexingStatus: limitText(
         body.indexingStatus || "Unknown / check manually",
         500
@@ -141,13 +143,18 @@ export async function POST(request: Request) {
     return Response.json({
       success: true,
       article,
+      storage: "persistent",
     });
   } catch (error) {
-    console.error("Save library article error:", error);
+    console.error("Save library storage error:", error);
 
     return Response.json(
-      { error: "Failed to save article." },
-      { status: 500 }
+      {
+        error:
+          "Persistent library storage is currently unavailable. The article was not saved; please retry after the database connection is restored.",
+        code: "PERSISTENT_STORAGE_UNAVAILABLE",
+      },
+      { status: 503 }
     );
   }
 }

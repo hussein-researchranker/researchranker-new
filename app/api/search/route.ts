@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 type MatchConfidence =
+  | "ISSN exact match"
   | "Exact title match"
   | "Approximate title match"
   | "Not matched";
@@ -39,6 +40,7 @@ type ScimagoJournal = {
 
 const PUBMED_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
 const DEFAULT_MAX_RESULTS = 50;
+const MAX_RESULTS_CAP = 100;
 const MAX_QUERY_CHARS = 500;
 const PUBMED_TIMEOUT_MS = 12_000;
 const SEARCH_LIMIT_PER_MINUTE = 20;
@@ -62,6 +64,19 @@ function normalizeTitle(value: string) {
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeIssn(value: string) {
+  return cleanText(value)
+    .replace(/[^0-9xX]/g, "")
+    .toUpperCase();
+}
+
+function splitIssns(value: string) {
+  return cleanText(value)
+    .split(/[,; ]+/)
+    .map(normalizeIssn)
+    .filter((value) => value.length === 8);
 }
 
 function parseCsvLine(line: string) {
@@ -125,7 +140,7 @@ async function loadScimagoData() {
     return scimagoCache;
   }
 
-  const filePath = path.join(process.cwd(), "public", "scimagojr.csv");
+  const filePath = path.join(process.cwd(), "data", "scimagojr.csv");
   const fileContent = await readFile(filePath, "utf8");
 
   const lines = fileContent
@@ -178,11 +193,31 @@ async function loadScimagoData() {
 
 function matchScimagoJournal(
   journalName: string,
+  articleIssns: string[],
   scimagoJournals: ScimagoJournal[]
 ): {
   journal: ScimagoJournal | null;
   confidence: MatchConfidence;
 } {
+  const normalizedArticleIssns = articleIssns
+    .map(normalizeIssn)
+    .filter((value) => value.length === 8);
+
+  if (normalizedArticleIssns.length > 0) {
+    const issnMatch = scimagoJournals.find((journal) =>
+      splitIssns(journal.issn).some((issn) =>
+        normalizedArticleIssns.includes(issn)
+      )
+    );
+
+    if (issnMatch) {
+      return {
+        journal: issnMatch,
+        confidence: "ISSN exact match",
+      };
+    }
+  }
+
   const normalizedJournal = normalizeTitle(journalName);
 
   if (!normalizedJournal) {
@@ -193,8 +228,7 @@ function matchScimagoJournal(
   }
 
   const exactMatch = scimagoJournals.find(
-    (scimagoJournal: ScimagoJournal) =>
-      scimagoJournal.normalizedTitle === normalizedJournal
+    (scimagoJournal) => scimagoJournal.normalizedTitle === normalizedJournal
   );
 
   if (exactMatch) {
@@ -210,10 +244,7 @@ function matchScimagoJournal(
   };
 }
 
-function buildIndexingStatus(
-  match: ScimagoJournal | null,
-  source: string
-) {
+function buildIndexingStatus(match: ScimagoJournal | null, source: string) {
   if (match?.quartile) {
     return `SCImago Indexed - ${match.quartile}`;
   }
@@ -223,7 +254,7 @@ function buildIndexingStatus(
   }
 
   if (source === "PubMed") {
-    return "PubMed result - journal not found in SCImago";
+    return "PubMed result - journal not verified in SCImago by ISSN";
   }
 
   return "Unknown / check manually";
@@ -439,7 +470,7 @@ export async function GET(request: Request) {
       searchParams.get("maxResults") || DEFAULT_MAX_RESULTS
     );
     const maxResults = Number.isFinite(rawMaxResults)
-      ? Math.min(Math.max(rawMaxResults, 1), 500)
+      ? Math.min(Math.max(rawMaxResults, 1), MAX_RESULTS_CAP)
       : DEFAULT_MAX_RESULTS;
 
     if (!query) {
@@ -508,18 +539,26 @@ export async function GET(request: Request) {
           fulljournalname?: string;
           source?: string;
           pubdate?: string;
+          issn?: string;
+          essn?: string;
         };
 
         const pmid = cleanText(record.uid);
         const journal =
           cleanText(record.fulljournalname || record.source) ||
           "Unknown journal";
+        const articleIssns = [record.issn, record.essn]
+          .map((value) => cleanText(value))
+          .filter(Boolean);
 
         const scimagoMatchResult = matchScimagoJournal(
           journal,
+          articleIssns,
           scimagoJournals
         );
         const scimagoMatch = scimagoMatchResult.journal;
+        const verifiedByIssn =
+          scimagoMatchResult.confidence === "ISSN exact match";
 
         return {
           pmid,
@@ -531,12 +570,18 @@ export async function GET(request: Request) {
           source: "PubMed",
           sourceUrl: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
           abstract: abstractByPmid[pmid] || "",
-          quartile: scimagoMatch?.quartile || "Not found",
-          indexingStatus: buildIndexingStatus(scimagoMatch, "PubMed"),
-          sjr: scimagoMatch?.sjr || "",
-          hIndex: scimagoMatch?.hIndex || "",
-          publisher: scimagoMatch?.publisher || "",
-          issn: scimagoMatch?.issn || "",
+          quartile: verifiedByIssn
+            ? scimagoMatch?.quartile || "Not found"
+            : "Not found",
+          indexingStatus: verifiedByIssn
+            ? buildIndexingStatus(scimagoMatch, "PubMed")
+            : scimagoMatch
+              ? "SCImago title candidate only - quartile not verified by ISSN"
+              : buildIndexingStatus(null, "PubMed"),
+          sjr: verifiedByIssn ? scimagoMatch?.sjr || "" : "",
+          hIndex: verifiedByIssn ? scimagoMatch?.hIndex || "" : "",
+          publisher: verifiedByIssn ? scimagoMatch?.publisher || "" : "",
+          issn: articleIssns.join(", "),
           matchConfidence: scimagoMatchResult.confidence,
         };
       });

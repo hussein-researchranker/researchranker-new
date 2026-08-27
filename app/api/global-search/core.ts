@@ -109,6 +109,53 @@ type OpenAlexResponse = {
   results?: OpenAlexWork[];
 };
 let scimagoCache: ScimagoJournal[] | null = null;
+const CORE_OPENALEX_TIMEOUT_MS = 8_000;
+const CORE_CROSSREF_TIMEOUT_MS = 10_000;
+
+function getScholarlyUserAgent() {
+  const contact = cleanText(
+    process.env.RESEARCHRANKER_CONTACT_EMAIL ||
+      process.env.UNPAYWALL_EMAIL ||
+      ""
+  );
+
+  return contact
+    ? `ResearchRanker/2.0 (mailto:${contact})`
+    : "ResearchRanker/2.0 academic-search";
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+) {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      {
+        length: Math.min(
+          Math.max(concurrency, 1),
+          Math.max(items.length, 1)
+        ),
+      },
+      () => worker()
+    )
+  );
+
+  return results;
+}
 
 function cleanText(value: unknown) {
   return String(value ?? "")
@@ -1142,7 +1189,7 @@ async function loadScimagoJournals() {
     return scimagoCache;
   }
 
-  const filePath = path.join(process.cwd(), "public", "scimagojr.csv");
+  const filePath = path.join(process.cwd(), "data", "scimagojr.csv");
   const fileContent = await readFile(filePath, "utf8");
 
   const lines = fileContent
@@ -1272,6 +1319,20 @@ function enrichWithScimago(
     return article;
   }
 
+  const verifiedByIssn = match.confidence === "ISSN exact match";
+
+  if (!verifiedByIssn) {
+    return {
+      ...article,
+      quartile: "Not found",
+      sjr: "",
+      hIndex: "",
+      indexingStatus:
+        "SCImago title candidate only - quartile not verified by exact ISSN",
+      matchConfidence: match.confidence,
+    };
+  }
+
   return {
     ...article,
     quartile: match.journal.quartile || article.quartile,
@@ -1280,8 +1341,8 @@ function enrichWithScimago(
     publisher: match.journal.publisher || article.publisher,
     indexingStatus:
       match.journal.quartile && match.journal.quartile !== "Not found"
-        ? `SCImago indexed / ${match.journal.quartile}`
-        : "SCImago indexed / quartile not clearly found",
+        ? `SCImago snapshot exact ISSN match / ${match.journal.quartile}`
+        : "SCImago snapshot exact ISSN match / quartile not clearly found",
     matchConfidence: match.confidence,
   };
 }
@@ -1313,11 +1374,12 @@ async function fetchOpenAlexByDoi(doi: string) {
   const response = await fetch(`https://api.openalex.org/works?${params}`, {
     headers: {
       Accept: "application/json",
-      "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
+      "User-Agent": getScholarlyUserAgent(),
     },
     next: {
       revalidate: 60 * 60,
     },
+    signal: AbortSignal.timeout(CORE_OPENALEX_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -1404,11 +1466,12 @@ async function fetchCrossrefByDoi(doi: string) {
     {
       headers: {
         Accept: "application/json",
-        "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
+        "User-Agent": getScholarlyUserAgent(),
       },
       next: {
         revalidate: 60 * 60,
       },
+      signal: AbortSignal.timeout(CORE_CROSSREF_TIMEOUT_MS),
     }
   );
 
@@ -1440,11 +1503,12 @@ async function fetchCrossrefWorks(
   const response = await fetch(`https://api.crossref.org/works?${params}`, {
     headers: {
       Accept: "application/json",
-      "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
+      "User-Agent": getScholarlyUserAgent(),
     },
     next: {
       revalidate: 60 * 30,
     },
+    signal: AbortSignal.timeout(CORE_CROSSREF_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -1495,8 +1559,10 @@ export async function GET(request: Request) {
   .map(normalizeCrossrefWork)
   .filter((article): article is GlobalArticle => Boolean(article));
 
-const articlesWithScimago = await Promise.all(
-  normalizedArticles.map(async (article) => {
+const articlesWithScimago = await mapWithConcurrency(
+  normalizedArticles,
+  5,
+  async (article) => {
     const scimagoMatchedArticle = enrichWithScimago(
       article,
       scimagoJournals
@@ -1521,7 +1587,7 @@ const articlesWithScimago = await Promise.all(
     );
 
     return enrichWithScimago(openAlexImprovedArticle, scimagoJournals);
-  })
+  }
 );
 
 const articles = articlesWithScimago.filter((article) => {

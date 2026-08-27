@@ -8,31 +8,50 @@ type GeminiSummaryResponse = {
   conclusion: string;
   researchValue: string;
   limitationNote: string;
+  evidenceBasis: "abstract" | "title-only" | "insufficient";
+  evidenceNotes: string[];
 };
 
 const GEMINI_MODEL = "gemini-2.5-flash-lite";
-const MAX_ABSTRACT_CHARS = 3000;
+const MAX_ABSTRACT_CHARS = 5000;
 const MAX_TITLE_CHARS = 500;
 const MAX_JOURNAL_CHARS = 300;
 const MAX_AUTHORS_CHARS = 1200;
 const MAX_PUBDATE_CHARS = 100;
 const GEMINI_TIMEOUT_MS = 15_000;
 const SUMMARY_LIMIT_PER_MINUTE = 20;
+const MIN_ABSTRACT_CHARS_FOR_AI_SUMMARY = 80;
+
+const NOT_REPORTED = "Not reported in the available title/abstract.";
 
 function cleanText(value: unknown) {
-  return String(value ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
 function limitText(value: unknown, maxChars: number) {
   const cleanValue = cleanText(value);
+  return cleanValue.length <= maxChars
+    ? cleanValue
+    : `${cleanValue.slice(0, maxChars)}...`;
+}
 
-  if (cleanValue.length <= maxChars) {
-    return cleanValue;
-  }
-
-  return `${cleanValue.slice(0, maxChars)}...`;
+function conservativeSummary(
+  evidenceBasis: GeminiSummaryResponse["evidenceBasis"],
+  limitation: string
+): GeminiSummaryResponse {
+  return {
+    objective: NOT_REPORTED,
+    methodology: NOT_REPORTED,
+    keyFindings: [NOT_REPORTED],
+    conclusion: NOT_REPORTED,
+    researchValue:
+      evidenceBasis === "title-only"
+        ? "The title identifies the article topic, but the available metadata is insufficient for a reliable scientific summary."
+        : "The available metadata is insufficient for a reliable scientific summary.",
+    limitationNote: limitation,
+    evidenceBasis,
+    evidenceNotes: [limitation],
+  };
 }
 
 function normalizeSummary(
@@ -41,47 +60,40 @@ function normalizeSummary(
   const keyFindings = Array.isArray(value.keyFindings)
     ? value.keyFindings.map(cleanText).filter(Boolean).slice(0, 5)
     : [];
+  const evidenceNotes = Array.isArray(value.evidenceNotes)
+    ? value.evidenceNotes.map(cleanText).filter(Boolean).slice(0, 6)
+    : [];
+  const evidenceBasis =
+    value.evidenceBasis === "title-only" ||
+    value.evidenceBasis === "insufficient"
+      ? value.evidenceBasis
+      : "abstract";
 
   return {
-    objective:
-      cleanText(value.objective) ||
-      "The objective was inferred from the article abstract.",
-    methodology:
-      cleanText(value.methodology) ||
-      "The methodology was not clearly specified in the abstract.",
-    keyFindings:
-      keyFindings.length > 0
-        ? keyFindings
-        : [
-            "The key findings could not be clearly extracted from the abstract.",
-          ],
-    conclusion:
-      cleanText(value.conclusion) ||
-      "The conclusion was not clearly specified in the abstract.",
+    objective: cleanText(value.objective) || NOT_REPORTED,
+    methodology: cleanText(value.methodology) || NOT_REPORTED,
+    keyFindings: keyFindings.length > 0 ? keyFindings : [NOT_REPORTED],
+    conclusion: cleanText(value.conclusion) || NOT_REPORTED,
     researchValue:
       cleanText(value.researchValue) ||
-      "This article may be useful for understanding the research topic described in the abstract.",
+      "Research value cannot be established reliably from the available metadata.",
     limitationNote:
       cleanText(value.limitationNote) ||
-      "This AI summary is based only on the available title and abstract.",
+      "This summary is constrained to the supplied title and abstract and must not be treated as a full-text assessment.",
+    evidenceBasis,
+    evidenceNotes:
+      evidenceNotes.length > 0
+        ? evidenceNotes
+        : ["No explicit evidence notes were returned by the model."],
   };
 }
 
-function safeParseJson(text: string): GeminiSummaryResponse {
+function safeParseJson(text: string): GeminiSummaryResponse | null {
   try {
-    const cleaned = text
-      .replace(/```json/gi, "")
-      .replace(/```/g, "")
-      .trim();
-
+    const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
     return normalizeSummary(JSON.parse(cleaned));
   } catch {
-    return normalizeSummary({
-      objective: "AI summary generated as plain text.",
-      keyFindings: [text],
-      limitationNote:
-        "The AI response was not returned as structured JSON. Review manually before academic use.",
-    });
+    return null;
   }
 }
 
@@ -125,8 +137,30 @@ export async function POST(request: Request) {
       );
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const body = await request.json();
+    const title = limitText(body?.title, MAX_TITLE_CHARS);
+    const journal = limitText(body?.journal, MAX_JOURNAL_CHARS);
+    const abstract = limitText(body?.abstract, MAX_ABSTRACT_CHARS);
+    const authors = limitText(body?.authors, MAX_AUTHORS_CHARS);
+    const pubdate = limitText(body?.pubdate, MAX_PUBDATE_CHARS);
 
+    if (!title && !abstract) {
+      return Response.json(
+        { error: "Missing article title or abstract." },
+        { status: 400 }
+      );
+    }
+
+    if (abstract.length < MIN_ABSTRACT_CHARS_FOR_AI_SUMMARY) {
+      return Response.json(
+        conservativeSummary(
+          title ? "title-only" : "insufficient",
+          "A sufficiently detailed abstract is not available. ResearchRanker did not ask the AI to infer methods, findings, or conclusions from the title alone."
+        )
+      );
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return Response.json(
         {
@@ -137,41 +171,25 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = await request.json();
-
-    const title = limitText(body?.title, MAX_TITLE_CHARS);
-    const journal = limitText(body?.journal, MAX_JOURNAL_CHARS);
-    const abstract = limitText(body?.abstract, MAX_ABSTRACT_CHARS);
-    const authors = limitText(body?.authors, MAX_AUTHORS_CHARS);
-    const pubdate = limitText(body?.pubdate, MAX_PUBDATE_CHARS);
-
-    if (!title && !abstract) {
-      return Response.json(
-        {
-          error: "Missing article title or abstract.",
-        },
-        { status: 400 }
-      );
-    }
-
     const prompt = `
-You are an academic biomedical research assistant.
+You are an evidence-constrained academic research summarizer.
 
-Extract a useful structured academic summary from the article data below.
+Summarize ONLY information explicitly supported by the supplied title and abstract. This is not a full-text article.
 
-Rules:
-- Use only the title and abstract provided.
-- Do not invent data, numbers, or outcomes.
-- Do not answer "Not specified" unless absolutely necessary.
-- If the objective is not explicitly stated, infer it from the first sentences.
-- If methodology is not explicitly stated, infer the article type from wording such as review, observational, experimental, comparative, mechanistic, or clinical.
-- Key findings must contain 3 meaningful points when possible.
-- Conclusion must summarize the main implication.
-- Research value must explain why this paper is useful for researchers.
-- Limitation note must mention that the summary is based only on the available abstract when appropriate.
+Non-negotiable rules:
+- Never invent, estimate, extrapolate, or infer sample size, study design, population, intervention, comparator, biomarkers, numerical results, statistical significance, effect direction, mechanism, or conclusion.
+- If a requested element is not explicitly supported, write exactly: "${NOT_REPORTED}"
+- Do not infer methodology merely from the topic or journal.
+- Do not convert associations into causation.
+- Do not turn background statements into study findings.
+- Do not claim a finding unless the abstract states it as a result or conclusion.
+- Keep numbers exactly as supplied. Do not calculate new statistics.
+- keyFindings may contain fewer than three items. Accuracy is more important than completeness.
+- evidenceNotes must briefly identify which portions of the abstract support the summary, using paraphrases rather than fabricated quotations.
+- limitationNote must state that the summary is based only on the supplied title and abstract.
 - Return JSON only.
 
-Article:
+Article metadata:
 Title: ${title}
 Journal: ${journal}
 Authors: ${authors}
@@ -183,22 +201,12 @@ Abstract: ${abstract}
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: prompt,
-                },
-              ],
-            },
-          ],
+          contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 900,
+            temperature: 0,
+            maxOutputTokens: 1100,
             responseMimeType: "application/json",
             responseSchema: {
               type: "object",
@@ -212,6 +220,14 @@ Abstract: ${abstract}
                 conclusion: { type: "string" },
                 researchValue: { type: "string" },
                 limitationNote: { type: "string" },
+                evidenceBasis: {
+                  type: "string",
+                  enum: ["abstract", "title-only", "insufficient"],
+                },
+                evidenceNotes: {
+                  type: "array",
+                  items: { type: "string" },
+                },
               },
               required: [
                 "objective",
@@ -220,6 +236,8 @@ Abstract: ${abstract}
                 "conclusion",
                 "researchValue",
                 "limitationNote",
+                "evidenceBasis",
+                "evidenceNotes",
               ],
             },
           },
@@ -258,26 +276,28 @@ Abstract: ${abstract}
         );
       }
 
-      return Response.json(
-        {
-          error: message,
-        },
-        { status }
-      );
+      return Response.json({ error: message }, { status });
     }
 
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
     if (!text) {
       return Response.json(
-        {
-          error: "Gemini returned an empty response.",
-        },
-        { status: 500 }
+        conservativeSummary(
+          "insufficient",
+          "The AI provider returned no structured summary. ResearchRanker did not substitute an inferred summary."
+        )
       );
     }
 
     const summary = safeParseJson(text);
+    if (!summary) {
+      return Response.json(
+        conservativeSummary(
+          "insufficient",
+          "The AI response could not be validated as structured JSON. ResearchRanker discarded it instead of displaying potentially unreliable prose."
+        )
+      );
+    }
 
     return Response.json(summary);
   } catch (error) {
@@ -285,17 +305,13 @@ Abstract: ${abstract}
 
     if (isTimeoutError(error)) {
       return Response.json(
-        {
-          error: "AI summary timed out. Please try again.",
-        },
+        { error: "AI summary timed out. Please try again." },
         { status: 504 }
       );
     }
 
     return Response.json(
-      {
-        error: "AI summary failed because of a server error.",
-      },
+      { error: "AI summary failed because of a server error." },
       { status: 500 }
     );
   }

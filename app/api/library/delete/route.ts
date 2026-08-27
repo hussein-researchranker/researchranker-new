@@ -63,13 +63,18 @@ export async function POST(request: Request) {
     return Response.json({
       success: true,
       deletedId: rawId,
+      storage: "persistent",
     });
   } catch (error) {
-    console.error("Delete library article error:", error);
+    console.error("Delete library storage error:", error);
 
     return Response.json(
-      { error: "Failed to delete article." },
-      { status: 500 }
+      {
+        error:
+          "Persistent library storage is currently unavailable. Nothing was deleted; please retry after the database connection is restored.",
+        code: "PERSISTENT_STORAGE_UNAVAILABLE",
+      },
+      { status: 503 }
     );
   }
 }

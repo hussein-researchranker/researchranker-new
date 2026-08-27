@@ -59,6 +59,7 @@ type SortOption =
   type DoiFilter = "All" | "Has DOI" | "No DOI";
   type MatchConfidenceFilter =
   | "All"
+  | "ISSN exact match"
   | "Exact title match"
   | "Approximate title match"
   | "Not matched";
@@ -107,6 +108,7 @@ const sortOptions: SortOption[] = [
 const doiFilters: DoiFilter[] = ["All", "Has DOI", "No DOI"];
 const matchConfidenceFilters: MatchConfidenceFilter[] = [
   "All",
+  "ISSN exact match",
   "Exact title match",
   "Approximate title match",
   "Not matched",
