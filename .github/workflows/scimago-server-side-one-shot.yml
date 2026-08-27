@@ -1,0 +1,209 @@
+name: One-shot server-side SCImago migration
+
+on:
+  push:
+    branches:
+      - agent/platform-v2
+    paths:
+      - .github/workflows/scimago-server-side-one-shot.yml
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: agent/platform-v2
+          fetch-depth: 0
+
+      - name: Make journal evidence strict and server-side
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          old_path = 'path.join(process.cwd(), "public", "scimagojr.csv")'
+          new_path = 'path.join(process.cwd(), "data", "scimagojr.csv")'
+
+          core_path = Path("app/api/global-search/core.ts")
+          core = core_path.read_text(encoding="utf-8")
+          if core.count(old_path) != 1:
+              raise SystemExit(f"core SCImago path count unexpected: {core.count(old_path)}")
+          core = core.replace(old_path, new_path, 1)
+
+          old_enrich = '''function enrichWithScimago(
+            article: GlobalArticle,
+            journals: ScimagoJournal[]
+          ): GlobalArticle {
+            const match = findScimagoMatch(article, journals);
+
+            if (!match) {
+              return article;
+            }
+
+            return {
+              ...article,
+              quartile: match.journal.quartile || article.quartile,
+              sjr: match.journal.sjr || article.sjr,
+              hIndex: match.journal.hIndex || article.hIndex,
+              publisher: match.journal.publisher || article.publisher,
+              indexingStatus:
+                match.journal.quartile && match.journal.quartile !== "Not found"
+                  ? `SCImago indexed / ${match.journal.quartile}`
+                  : "SCImago indexed / quartile not clearly found",
+              matchConfidence: match.confidence,
+            };
+          }'''
+
+          new_enrich = '''function enrichWithScimago(
+            article: GlobalArticle,
+            journals: ScimagoJournal[]
+          ): GlobalArticle {
+            const match = findScimagoMatch(article, journals);
+
+            if (!match) {
+              return article;
+            }
+
+            const verifiedByIssn = match.confidence === "ISSN exact match";
+
+            if (!verifiedByIssn) {
+              return {
+                ...article,
+                quartile: "Not found",
+                sjr: "",
+                hIndex: "",
+                indexingStatus:
+                  "SCImago title candidate only - quartile not verified by exact ISSN",
+                matchConfidence: match.confidence,
+              };
+            }
+
+            return {
+              ...article,
+              quartile: match.journal.quartile || article.quartile,
+              sjr: match.journal.sjr || article.sjr,
+              hIndex: match.journal.hIndex || article.hIndex,
+              publisher: match.journal.publisher || article.publisher,
+              indexingStatus:
+                match.journal.quartile && match.journal.quartile !== "Not found"
+                  ? `SCImago snapshot exact ISSN match / ${match.journal.quartile}`
+                  : "SCImago snapshot exact ISSN match / quartile not clearly found",
+              matchConfidence: match.confidence,
+            };
+          }'''
+
+          if old_enrich not in core:
+              raise SystemExit("core enrichWithScimago target not found")
+          core = core.replace(old_enrich, new_enrich, 1)
+
+          core = core.replace(
+              '      },\n    signal: AbortSignal.timeout(CORE_CROSSREF_TIMEOUT_MS),\n    }',
+              '      },\n      signal: AbortSignal.timeout(CORE_CROSSREF_TIMEOUT_MS),\n    }',
+              1,
+          )
+          core_path.write_text(core, encoding="utf-8")
+
+          verification_path = Path("lib/journal-verification.ts")
+          verification = verification_path.read_text(encoding="utf-8")
+          if verification.count(old_path) != 1:
+              raise SystemExit(f"verification SCImago path count unexpected: {verification.count(old_path)}")
+          verification_path.write_text(verification.replace(old_path, new_path, 1), encoding="utf-8")
+
+          search_path = Path("app/api/search/route.ts")
+          search = search_path.read_text(encoding="utf-8")
+          if search.count(old_path) != 1:
+              raise SystemExit(f"search SCImago path count unexpected: {search.count(old_path)}")
+          search_path.write_text(search.replace(old_path, new_path, 1), encoding="utf-8")
+
+          config_path = Path("next.config.ts")
+          config = config_path.read_text(encoding="utf-8")
+          marker = '''const nextConfig: NextConfig = {
+            poweredByHeader: false,'''
+          replacement = '''const nextConfig: NextConfig = {
+            poweredByHeader: false,
+            outputFileTracingIncludes: {
+              "/api/global-search": ["./data/scimagojr.csv"],
+              "/api/search": ["./data/scimagojr.csv"],
+              "/api/journal-verify": ["./data/scimagojr.csv"],
+              "/api/health": ["./data/scimagojr.csv"],
+            },'''
+          if marker not in config:
+              raise SystemExit("next.config.ts insertion target not found")
+          config_path.write_text(config.replace(marker, replacement, 1), encoding="utf-8")
+
+          health_path = Path("app/api/health/route.ts")
+          health = health_path.read_text(encoding="utf-8")
+          health = health.replace(
+              'import { checkRedisHealth } from "@/lib/redis";\n',
+              'import path from "path";\nimport { access } from "fs/promises";\nimport { checkRedisHealth } from "@/lib/redis";\n',
+              1,
+          )
+          health = health.replace(
+              '  const storage = await checkRedisHealth();\n',
+              '''  const storage = await checkRedisHealth();
+            let journalSnapshotAvailable = false;
+            try {
+              await access(path.join(process.cwd(), "data", "scimagojr.csv"));
+              journalSnapshotAvailable = true;
+            } catch {
+              journalSnapshotAvailable = false;
+            }
+          ''',
+              1,
+          )
+          health = health.replace(
+              '        scholarlySearchAvailable: true,\n',
+              '        scholarlySearchAvailable: true,\n        journalSnapshotAvailable,\n',
+              1,
+          )
+          health_path.write_text(health, encoding="utf-8")
+          PY
+
+      - name: Move snapshot out of public assets
+        shell: bash
+        run: |
+          test -f public/scimagojr.csv
+          mkdir -p data
+          git mv public/scimagojr.csv data/scimagojr.csv
+
+      - name: Verify migration invariants
+        shell: bash
+        run: |
+          test -f data/scimagojr.csv
+          test ! -f public/scimagojr.csv
+          ! grep -R 'process.cwd(), "public", "scimagojr.csv"' app lib --include='*.ts' --include='*.tsx'
+          grep -q 'verifiedByIssn' app/api/global-search/core.ts
+          grep -q 'outputFileTracingIncludes' next.config.ts
+          grep -q 'journalSnapshotAvailable' app/api/health/route.ts
+
+      - name: Remove one-shot workflow before commit
+        shell: bash
+        run: rm .github/workflows/scimago-server-side-one-shot.yml
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Commit migration
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "hardening: keep journal snapshot server-side and require ISSN evidence"
+          git push origin HEAD:agent/platform-v2
