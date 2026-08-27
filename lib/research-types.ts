@@ -27,8 +27,13 @@ export type LibraryArticle = {
   notes?: string;
   favorite?: boolean;
   readingStatus?: ReadingStatus;
+  /** Legacy single-stage status retained for backwards compatibility. */
   screeningStatus?: ScreeningStatus;
   screeningReason?: string;
+  titleAbstractStatus?: ScreeningStatus;
+  titleAbstractReason?: string;
+  fullTextStatus?: ScreeningStatus;
+  fullTextReason?: string;
   extraction?: Record<string, string>;
 };
 
@@ -94,6 +99,9 @@ export function normalizeLibraryArticle(value: unknown): LibraryArticle | null {
     const id = makeStableArticleId(article);
     if (!cleanText(id)) return null;
 
+    const legacyScreening = article.screeningStatus || "unscreened";
+    const legacyReason = cleanText(article.screeningReason);
+
     return {
       ...article,
       id,
@@ -103,15 +111,21 @@ export function normalizeLibraryArticle(value: unknown): LibraryArticle | null {
       quartile: cleanText(article.quartile || "Not found"),
       indexingStatus: cleanText(article.indexingStatus || "Unknown / check manually"),
       matchConfidence: cleanText(article.matchConfidence || "Not matched"),
-      tags: Array.isArray(article.tags) ? article.tags.map(cleanText).filter(Boolean).slice(0, 20) : [],
+      tags: Array.isArray(article.tags)
+        ? article.tags.map(cleanText).filter(Boolean).slice(0, 20)
+        : [],
       collectionIds: Array.isArray(article.collectionIds)
         ? article.collectionIds.map(cleanText).filter(Boolean).slice(0, 20)
         : [],
       notes: cleanText(article.notes),
       favorite: Boolean(article.favorite),
       readingStatus: article.readingStatus || "to-read",
-      screeningStatus: article.screeningStatus || "unscreened",
-      screeningReason: cleanText(article.screeningReason),
+      screeningStatus: legacyScreening,
+      screeningReason: legacyReason,
+      titleAbstractStatus: article.titleAbstractStatus || legacyScreening,
+      titleAbstractReason: cleanText(article.titleAbstractReason || legacyReason),
+      fullTextStatus: article.fullTextStatus || "unscreened",
+      fullTextReason: cleanText(article.fullTextReason),
       extraction:
         article.extraction && typeof article.extraction === "object"
           ? Object.fromEntries(
