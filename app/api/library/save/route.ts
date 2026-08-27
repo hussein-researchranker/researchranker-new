@@ -72,6 +72,12 @@ export async function POST(request: Request) {
       readingStatus: current?.readingStatus || "to-read",
       screeningStatus: current?.screeningStatus || "unscreened",
       screeningReason: current?.screeningReason || "",
+      titleAbstractStatus:
+        current?.titleAbstractStatus || current?.screeningStatus || "unscreened",
+      titleAbstractReason:
+        current?.titleAbstractReason || current?.screeningReason || "",
+      fullTextStatus: current?.fullTextStatus || "unscreened",
+      fullTextReason: current?.fullTextReason || "",
       extraction: current?.extraction || {},
       savedAt: current?.savedAt || now,
       updatedAt: now,
