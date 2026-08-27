@@ -10,12 +10,26 @@ function shortId(value: unknown) {
 
 async function fetchWork(id: string) {
   try {
-    const response = await fetch(`https://api.openalex.org/works/${encodeURIComponent(id)}`, { next: { revalidate: 21600 } });
+    const response = await fetch(
+      `https://api.openalex.org/works/${encodeURIComponent(id)}`,
+      { next: { revalidate: 21600 } }
+    );
     if (!response.ok) return null;
     return await response.json();
   } catch {
     return null;
   }
+}
+
+function getAuthors(work: Record<string, unknown>) {
+  const authorships = Array.isArray(work.authorships) ? work.authorships : [];
+  return authorships
+    .slice(0, 6)
+    .map((item: unknown) => {
+      const row = item as { author?: { display_name?: string } };
+      return cleanText(row.author?.display_name, 120);
+    })
+    .filter(Boolean);
 }
 
 function nodeFromWork(work: Record<string, unknown>, relation: string) {
@@ -25,9 +39,14 @@ function nodeFromWork(work: Record<string, unknown>, relation: string) {
     id: shortId(work.id),
     title: cleanText(work.title, 500),
     year: Number(work.publication_year) || null,
+    publicationDate: cleanText(work.publication_date, 80),
     citedByCount: Number(work.cited_by_count) || 0,
     doi: cleanText(work.doi, 300).replace(/^https:\/\/doi\.org\//i, ""),
     journal: cleanText(source.display_name, 300),
+    authors: getAuthors(work),
+    isOpenAccess: Boolean(
+      (work.open_access as Record<string, unknown> | undefined)?.is_oa
+    ),
     relation,
   };
 }
@@ -35,16 +54,33 @@ function nodeFromWork(work: Record<string, unknown>, relation: string) {
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const doi = cleanText(searchParams.get("doi"), 300).replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
-    if (!doi) return Response.json({ error: "DOI is required." }, { status: 400 });
+    const doi = cleanText(searchParams.get("doi"), 300).replace(
+      /^https?:\/\/(dx\.)?doi\.org\//i,
+      ""
+    );
+    if (!doi) {
+      return Response.json({ error: "DOI is required." }, { status: 400 });
+    }
 
-    const baseResponse = await fetch(`https://api.openalex.org/works/https://doi.org/${encodeURIComponent(doi)}`, { next: { revalidate: 21600 } });
-    if (!baseResponse.ok) return Response.json({ error: "Paper not found in OpenAlex." }, { status: 404 });
+    const baseResponse = await fetch(
+      `https://api.openalex.org/works/https://doi.org/${encodeURIComponent(doi)}`,
+      { next: { revalidate: 21600 } }
+    );
+    if (!baseResponse.ok) {
+      return Response.json(
+        { error: "Paper not found in OpenAlex." },
+        { status: 404 }
+      );
+    }
     const base = await baseResponse.json();
     const baseId = shortId(base.id);
 
-    const relatedIds = Array.isArray(base.related_works) ? base.related_works.slice(0, 6).map(shortId) : [];
-    const referenceIds = Array.isArray(base.referenced_works) ? base.referenced_works.slice(0, 6).map(shortId) : [];
+    const relatedIds = Array.isArray(base.related_works)
+      ? base.related_works.slice(0, 6).map(shortId)
+      : [];
+    const referenceIds = Array.isArray(base.referenced_works)
+      ? base.referenced_works.slice(0, 6).map(shortId)
+      : [];
 
     const citedByUrl = new URL("https://api.openalex.org/works");
     citedByUrl.searchParams.set("filter", `cites:${baseId}`);
@@ -57,12 +93,20 @@ export async function GET(request: Request) {
       fetch(citedByUrl, { next: { revalidate: 21600 } }),
     ]);
 
-    const citedByData = citedByResponse.ok ? await citedByResponse.json() : { results: [] };
+    const citedByData = citedByResponse.ok
+      ? await citedByResponse.json()
+      : { results: [] };
     const center = nodeFromWork(base, "center");
-    const related = relatedWorks.filter(Boolean).map((work) => nodeFromWork(work, "related"));
-    const references = referenceWorks.filter(Boolean).map((work) => nodeFromWork(work, "reference"));
+    const related = relatedWorks
+      .filter(Boolean)
+      .map((work) => nodeFromWork(work, "related"));
+    const references = referenceWorks
+      .filter(Boolean)
+      .map((work) => nodeFromWork(work, "reference"));
     const citedBy = Array.isArray(citedByData.results)
-      ? citedByData.results.slice(0, 6).map((work: Record<string, unknown>) => nodeFromWork(work, "cited-by"))
+      ? citedByData.results
+          .slice(0, 6)
+          .map((work: Record<string, unknown>) => nodeFromWork(work, "cited-by"))
       : [];
 
     const unique = new Map<string, ReturnType<typeof nodeFromWork>>();
@@ -78,9 +122,44 @@ export async function GET(request: Request) {
         relation: node.relation,
       }));
 
-    return Response.json({ nodes, edges, generatedAt: new Date().toISOString(), source: "OpenAlex" });
+    const timeline = Array.from(
+      nodes.reduce((map, node) => {
+        if (!node.year) return map;
+        const current = map.get(node.year) || [];
+        current.push(node.id);
+        map.set(node.year, current);
+        return map;
+      }, new Map<number, string[]>())
+    )
+      .sort(([a], [b]) => a - b)
+      .map(([year, nodeIds]) => ({ year, nodeIds }));
+
+    const authorFrequency = new Map<string, number>();
+    nodes.forEach((node) => {
+      node.authors.forEach((author) => {
+        authorFrequency.set(author, (authorFrequency.get(author) || 0) + 1);
+      });
+    });
+    const authors = Array.from(authorFrequency.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 20)
+      .map(([name, papers]) => ({ name, papers }));
+
+    return Response.json({
+      nodes,
+      edges,
+      timeline,
+      authors,
+      generatedAt: new Date().toISOString(),
+      source: "OpenAlex",
+      interpretation:
+        "Relationships are discovery signals from OpenAlex and should not be interpreted as evidence quality or causal relatedness.",
+    });
   } catch (error) {
     console.error("Graph API error:", error);
-    return Response.json({ error: "Failed to build paper graph." }, { status: 500 });
+    return Response.json(
+      { error: "Failed to build paper graph." },
+      { status: 500 }
+    );
   }
 }
