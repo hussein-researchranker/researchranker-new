@@ -19,4 +19,21 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run build
+      - name: Build application
+        shell: bash
+        run: |
+          set +e
+          npm run build 2>&1 | tee build.log
+          BUILD_EXIT=${PIPESTATUS[0]}
+          echo "build_exit=$BUILD_EXIT" >> "$GITHUB_ENV"
+          exit 0
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-platform-v2-build-log
+          path: build.log
+          if-no-files-found: error
+      - name: Enforce build result
+        shell: bash
+        run: exit "${build_exit:-1}"
