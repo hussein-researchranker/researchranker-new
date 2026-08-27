@@ -1,12 +1,17 @@
-name: Research Platform V2 CI
+name: ResearchRanker CI
 
 on:
   push:
     branches:
+      - main
       - agent/research-platform-v2
   pull_request:
     branches:
       - main
+
+concurrency:
+  group: researchranker-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -31,7 +36,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: research-platform-v2-build-log
+          name: researchranker-build-log-${{ github.run_number }}
           path: build.log
           if-no-files-found: error
       - name: Enforce build result
