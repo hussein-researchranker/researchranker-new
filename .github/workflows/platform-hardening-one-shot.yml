@@ -1,0 +1,515 @@
+name: One-shot platform hardening
+
+on:
+  push:
+    branches:
+      - agent/platform-v2
+    paths:
+      - .github/workflows/platform-hardening-one-shot.yml
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: agent/platform-v2
+          fetch-depth: 0
+
+      - name: Patch search infrastructure
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          core_path = Path("app/api/global-search/core.ts")
+          core = core_path.read_text(encoding="utf-8")
+
+          cache_marker = "let scimagoCache: ScimagoJournal[] | null = null;\n"
+          helper = '''let scimagoCache: ScimagoJournal[] | null = null;
+          const CORE_OPENALEX_TIMEOUT_MS = 8_000;
+          const CORE_CROSSREF_TIMEOUT_MS = 10_000;
+
+          function getScholarlyUserAgent() {
+            const contact = cleanText(
+              process.env.RESEARCHRANKER_CONTACT_EMAIL ||
+                process.env.UNPAYWALL_EMAIL ||
+                ""
+            );
+
+            return contact
+              ? `ResearchRanker/2.0 (mailto:${contact})`
+              : "ResearchRanker/2.0 academic-search";
+          }
+
+          async function mapWithConcurrency<T, R>(
+            items: T[],
+            concurrency: number,
+            mapper: (item: T, index: number) => Promise<R>
+          ) {
+            const results = new Array<R>(items.length);
+            let nextIndex = 0;
+
+            async function worker() {
+              while (true) {
+                const index = nextIndex;
+                nextIndex += 1;
+
+                if (index >= items.length) return;
+                results[index] = await mapper(items[index], index);
+              }
+            }
+
+            await Promise.all(
+              Array.from(
+                {
+                  length: Math.min(
+                    Math.max(concurrency, 1),
+                    Math.max(items.length, 1)
+                  ),
+                },
+                () => worker()
+              )
+            );
+
+            return results;
+          }
+          '''
+          if "function getScholarlyUserAgent()" not in core:
+              if core.count(cache_marker) != 1:
+                  raise SystemExit("Unexpected SCImago cache marker count")
+              core = core.replace(cache_marker, helper, 1)
+
+          personal_ua = '"User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",'
+          if core.count(personal_ua) != 3:
+              raise SystemExit(f"Expected 3 hard-coded scholarly User-Agents, found {core.count(personal_ua)}")
+          core = core.replace(personal_ua, '"User-Agent": getScholarlyUserAgent(),')
+
+          openalex_old = '''    next: {
+              revalidate: 60 * 60,
+            },
+          });
+
+          if (!response.ok) {
+            return null;
+          }
+
+          const data = (await response.json()) as OpenAlexResponse;'''
+          openalex_new = '''    next: {
+              revalidate: 60 * 60,
+            },
+            signal: AbortSignal.timeout(CORE_OPENALEX_TIMEOUT_MS),
+          });
+
+          if (!response.ok) {
+            return null;
+          }
+
+          const data = (await response.json()) as OpenAlexResponse;'''
+          if openalex_old not in core:
+              raise SystemExit("OpenAlex timeout insertion target not found")
+          core = core.replace(openalex_old, openalex_new, 1)
+
+          crossref_doi_old = '''      next: {
+                revalidate: 60 * 60,
+              },
+            }
+          );'''
+          crossref_doi_new = '''      next: {
+                revalidate: 60 * 60,
+              },
+              signal: AbortSignal.timeout(CORE_CROSSREF_TIMEOUT_MS),
+            }
+          );'''
+          if crossref_doi_old not in core:
+              raise SystemExit("Crossref DOI timeout insertion target not found")
+          core = core.replace(crossref_doi_old, crossref_doi_new, 1)
+
+          crossref_list_old = '''    next: {
+              revalidate: 60 * 30,
+            },
+          });
+
+          if (!response.ok) {
+            throw new Error("Crossref search failed.");
+          }'''
+          crossref_list_new = '''    next: {
+              revalidate: 60 * 30,
+            },
+            signal: AbortSignal.timeout(CORE_CROSSREF_TIMEOUT_MS),
+          });
+
+          if (!response.ok) {
+            throw new Error("Crossref search failed.");
+          }'''
+          if crossref_list_old not in core:
+              raise SystemExit("Crossref list timeout insertion target not found")
+          core = core.replace(crossref_list_old, crossref_list_new, 1)
+
+          promise_old = '''const articlesWithScimago = await Promise.all(
+            normalizedArticles.map(async (article) => {
+              const scimagoMatchedArticle = enrichWithScimago(
+                article,
+                scimagoJournals
+              );
+
+              if (
+                scimagoMatchedArticle.quartile !== "Not found" ||
+                !scimagoMatchedArticle.doi
+              ) {
+                return scimagoMatchedArticle;
+              }
+
+              const openAlexWork = await fetchOpenAlexByDoi(scimagoMatchedArticle.doi);
+
+              if (!openAlexWork) {
+                return scimagoMatchedArticle;
+              }
+
+              const openAlexImprovedArticle = improveArticleWithOpenAlexSource(
+                scimagoMatchedArticle,
+                openAlexWork
+              );
+
+              return enrichWithScimago(openAlexImprovedArticle, scimagoJournals);
+            })
+          );'''
+          promise_new = '''const articlesWithScimago = await mapWithConcurrency(
+            normalizedArticles,
+            5,
+            async (article) => {
+              const scimagoMatchedArticle = enrichWithScimago(
+                article,
+                scimagoJournals
+              );
+
+              if (
+                scimagoMatchedArticle.quartile !== "Not found" ||
+                !scimagoMatchedArticle.doi
+              ) {
+                return scimagoMatchedArticle;
+              }
+
+              const openAlexWork = await fetchOpenAlexByDoi(scimagoMatchedArticle.doi);
+
+              if (!openAlexWork) {
+                return scimagoMatchedArticle;
+              }
+
+              const openAlexImprovedArticle = improveArticleWithOpenAlexSource(
+                scimagoMatchedArticle,
+                openAlexWork
+              );
+
+              return enrichWithScimago(openAlexImprovedArticle, scimagoJournals);
+            }
+          );'''
+          if promise_old not in core:
+              raise SystemExit("OpenAlex Promise.all enrichment block not found")
+          core = core.replace(promise_old, promise_new, 1)
+
+          core = core.replace(
+              'path.join(process.cwd(), "public", "scimagojr.csv")',
+              'path.join(process.cwd(), "data", "scimagojr.csv")',
+          )
+          core_path.write_text(core, encoding="utf-8")
+
+          verification_path = Path("lib/journal-verification.ts")
+          verification = verification_path.read_text(encoding="utf-8")
+          old_path = 'path.join(process.cwd(), "public", "scimagojr.csv")'
+          if verification.count(old_path) != 1:
+              raise SystemExit("Unexpected journal-verification SCImago path count")
+          verification = verification.replace(
+              old_path,
+              'path.join(process.cwd(), "data", "scimagojr.csv")',
+              1,
+          )
+          verification_path.write_text(verification, encoding="utf-8")
+
+          search_path = Path("app/api/search/route.ts")
+          search = search_path.read_text(encoding="utf-8")
+          if search.count(old_path) != 1:
+              raise SystemExit("Unexpected legacy search SCImago path count")
+          search = search.replace(
+              old_path,
+              'path.join(process.cwd(), "data", "scimagojr.csv")',
+              1,
+          )
+
+          old_type = '''type MatchConfidence =
+            | "Exact title match"
+            | "Approximate title match"
+            | "Not matched";'''
+          new_type = '''type MatchConfidence =
+            | "ISSN exact match"
+            | "Exact title match"
+            | "Approximate title match"
+            | "Not matched";'''
+          if old_type not in search:
+              raise SystemExit("Legacy MatchConfidence type target not found")
+          search = search.replace(old_type, new_type, 1)
+
+          normalize_marker = '''function normalizeTitle(value: string) {
+            return cleanText(value)
+              .toLowerCase()
+              .replace(/&/g, "and")
+              .replace(/\\bthe\\b/g, "")
+              .replace(/\\bjournal of\\b/g, "")
+              .replace(/\\bamerican journal of\\b/g, "")
+              .replace(/\\binternational journal of\\b/g, "")
+              .replace(/[^a-z0-9]+/g, " ")
+              .replace(/\\s+/g, " ")
+              .trim();
+          }
+          '''
+          normalize_replacement = normalize_marker + '''
+          function normalizeIssn(value: string) {
+            return cleanText(value)
+              .replace(/[^0-9xX]/g, "")
+              .toUpperCase();
+          }
+
+          function splitIssns(value: string) {
+            return cleanText(value)
+              .split(/[,; ]+/)
+              .map(normalizeIssn)
+              .filter((value) => value.length === 8);
+          }
+          '''
+          if normalize_marker not in search:
+              raise SystemExit("Legacy normalizeTitle insertion target not found")
+          search = search.replace(normalize_marker, normalize_replacement, 1)
+
+          signature_old = '''function matchScimagoJournal(
+            journalName: string,
+            scimagoJournals: ScimagoJournal[]
+          ): {
+            journal: ScimagoJournal | null;
+            confidence: MatchConfidence;
+          } {
+            const normalizedJournal = normalizeTitle(journalName);
+
+            if (!normalizedJournal) {
+              return {
+                journal: null,
+                confidence: "Not matched",
+              };
+            }
+
+            const exactMatch = scimagoJournals.find(
+              (scimagoJournal: ScimagoJournal) =>
+                scimagoJournal.normalizedTitle === normalizedJournal
+            );
+
+            if (exactMatch) {
+              return {
+                journal: exactMatch,
+                confidence: "Exact title match",
+              };
+            }
+
+            return {
+              journal: null,
+              confidence: "Not matched",
+            };
+          }'''
+          signature_new = '''function matchScimagoJournal(
+            journalName: string,
+            articleIssns: string[],
+            scimagoJournals: ScimagoJournal[]
+          ): {
+            journal: ScimagoJournal | null;
+            confidence: MatchConfidence;
+          } {
+            const normalizedArticleIssns = articleIssns
+              .map(normalizeIssn)
+              .filter((value) => value.length === 8);
+
+            if (normalizedArticleIssns.length > 0) {
+              const issnMatch = scimagoJournals.find((journal) =>
+                splitIssns(journal.issn).some((issn) =>
+                  normalizedArticleIssns.includes(issn)
+                )
+              );
+
+              if (issnMatch) {
+                return {
+                  journal: issnMatch,
+                  confidence: "ISSN exact match",
+                };
+              }
+            }
+
+            const normalizedJournal = normalizeTitle(journalName);
+
+            if (!normalizedJournal) {
+              return {
+                journal: null,
+                confidence: "Not matched",
+              };
+            }
+
+            const exactMatch = scimagoJournals.find(
+              (scimagoJournal: ScimagoJournal) =>
+                scimagoJournal.normalizedTitle === normalizedJournal
+            );
+
+            if (exactMatch) {
+              return {
+                journal: exactMatch,
+                confidence: "Exact title match",
+              };
+            }
+
+            return {
+              journal: null,
+              confidence: "Not matched",
+            };
+          }'''
+          if signature_old not in search:
+              raise SystemExit("Legacy SCImago matcher target not found")
+          search = search.replace(signature_old, signature_new, 1)
+
+          record_old = '''          pubdate?: string;
+                };'''
+          record_new = '''          pubdate?: string;
+                  issn?: string;
+                  essn?: string;
+                };'''
+          if record_old not in search:
+              raise SystemExit("Legacy PubMed record type target not found")
+          search = search.replace(record_old, record_new, 1)
+
+          call_old = '''        const scimagoMatchResult = matchScimagoJournal(
+                  journal,
+                  scimagoJournals
+                );
+                const scimagoMatch = scimagoMatchResult.journal;'''
+          call_new = '''        const articleIssns = [record.issn, record.essn]
+                  .map((value) => cleanText(value))
+                  .filter(Boolean);
+                const scimagoMatchResult = matchScimagoJournal(
+                  journal,
+                  articleIssns,
+                  scimagoJournals
+                );
+                const scimagoMatch = scimagoMatchResult.journal;
+                const verifiedByIssn =
+                  scimagoMatchResult.confidence === "ISSN exact match";'''
+          if call_old not in search:
+              raise SystemExit("Legacy SCImago matcher call target not found")
+          search = search.replace(call_old, call_new, 1)
+
+          metrics_old = '''          quartile: scimagoMatch?.quartile || "Not found",
+                  indexingStatus: buildIndexingStatus(scimagoMatch, "PubMed"),
+                  sjr: scimagoMatch?.sjr || "",
+                  hIndex: scimagoMatch?.hIndex || "",
+                  publisher: scimagoMatch?.publisher || "",
+                  issn: scimagoMatch?.issn || "",
+                  matchConfidence: scimagoMatchResult.confidence,'''
+          metrics_new = '''          quartile: verifiedByIssn
+                    ? scimagoMatch?.quartile || "Not found"
+                    : "Not found",
+                  indexingStatus: verifiedByIssn
+                    ? buildIndexingStatus(scimagoMatch, "PubMed")
+                    : scimagoMatch
+                      ? "SCImago title candidate only - quartile not verified by ISSN"
+                      : buildIndexingStatus(null, "PubMed"),
+                  sjr: verifiedByIssn ? scimagoMatch?.sjr || "" : "",
+                  hIndex: verifiedByIssn ? scimagoMatch?.hIndex || "" : "",
+                  publisher: verifiedByIssn ? scimagoMatch?.publisher || "" : "",
+                  issn: articleIssns.join(", "),
+                  matchConfidence: scimagoMatchResult.confidence,'''
+          if metrics_old not in search:
+              raise SystemExit("Legacy PubMed metrics target not found")
+          search = search.replace(metrics_old, metrics_new, 1)
+          search_path.write_text(search, encoding="utf-8")
+
+          advanced_path = Path("app/advanced-search/page.tsx")
+          advanced = advanced_path.read_text(encoding="utf-8")
+          old_union = '''type MatchConfidenceFilter =
+            | "All"
+            | "Exact title match"
+            | "Approximate title match"
+            | "Not matched";'''
+          new_union = '''type MatchConfidenceFilter =
+            | "All"
+            | "ISSN exact match"
+            | "Exact title match"
+            | "Approximate title match"
+            | "Not matched";'''
+          if old_union not in advanced:
+              raise SystemExit("Advanced-search MatchConfidenceFilter target not found")
+          advanced = advanced.replace(old_union, new_union, 1)
+          old_array = '''const matchConfidenceFilters: MatchConfidenceFilter[] = [
+            "All",
+            "Exact title match",
+            "Approximate title match",
+            "Not matched",
+          ];'''
+          new_array = '''const matchConfidenceFilters: MatchConfidenceFilter[] = [
+            "All",
+            "ISSN exact match",
+            "Exact title match",
+            "Approximate title match",
+            "Not matched",
+          ];'''
+          if old_array not in advanced:
+              raise SystemExit("Advanced-search match-confidence array target not found")
+          advanced = advanced.replace(old_array, new_array, 1)
+          advanced_path.write_text(advanced, encoding="utf-8")
+          PY
+
+      - name: Move SCImago snapshot out of public assets
+        shell: bash
+        run: |
+          test -f public/scimagojr.csv
+          mkdir -p data
+          git mv public/scimagojr.csv data/scimagojr.csv
+
+      - name: Remove one-shot workflow before commit
+        shell: bash
+        run: rm .github/workflows/platform-hardening-one-shot.yml
+
+      - name: Verify source invariants
+        shell: bash
+        run: |
+          test -f data/scimagojr.csv
+          test ! -f public/scimagojr.csv
+          ! grep -R "husseinjk40@gmail.com" app lib --include='*.ts' --include='*.tsx'
+          ! grep -R 'process.cwd(), "public", "scimagojr.csv"' app lib --include='*.ts' --include='*.tsx'
+          grep -q 'mapWithConcurrency' app/api/global-search/core.ts
+          grep -q 'ISSN exact match' app/api/search/route.ts
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Production build
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+        run: npm run build
+
+      - name: Commit hardening changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "hardening: bound scholarly enrichment and privatize journal snapshot"
+          git push origin HEAD:agent/platform-v2
