@@ -109,6 +109,53 @@ type OpenAlexResponse = {
   results?: OpenAlexWork[];
 };
 let scimagoCache: ScimagoJournal[] | null = null;
+const CORE_OPENALEX_TIMEOUT_MS = 8_000;
+const CORE_CROSSREF_TIMEOUT_MS = 10_000;
+
+function getScholarlyUserAgent() {
+  const contact = cleanText(
+    process.env.RESEARCHRANKER_CONTACT_EMAIL ||
+      process.env.UNPAYWALL_EMAIL ||
+      ""
+  );
+
+  return contact
+    ? `ResearchRanker/2.0 (mailto:${contact})`
+    : "ResearchRanker/2.0 academic-search";
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+) {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      {
+        length: Math.min(
+          Math.max(concurrency, 1),
+          Math.max(items.length, 1)
+        ),
+      },
+      () => worker()
+    )
+  );
+
+  return results;
+}
 
 function cleanText(value: unknown) {
   return String(value ?? "")
@@ -1313,11 +1360,12 @@ async function fetchOpenAlexByDoi(doi: string) {
   const response = await fetch(`https://api.openalex.org/works?${params}`, {
     headers: {
       Accept: "application/json",
-      "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
+      "User-Agent": getScholarlyUserAgent(),
     },
     next: {
       revalidate: 60 * 60,
     },
+    signal: AbortSignal.timeout(CORE_OPENALEX_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -1404,11 +1452,12 @@ async function fetchCrossrefByDoi(doi: string) {
     {
       headers: {
         Accept: "application/json",
-        "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
+        "User-Agent": getScholarlyUserAgent(),
       },
       next: {
         revalidate: 60 * 60,
       },
+    signal: AbortSignal.timeout(CORE_CROSSREF_TIMEOUT_MS),
     }
   );
 
@@ -1440,11 +1489,12 @@ async function fetchCrossrefWorks(
   const response = await fetch(`https://api.crossref.org/works?${params}`, {
     headers: {
       Accept: "application/json",
-      "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
+      "User-Agent": getScholarlyUserAgent(),
     },
     next: {
       revalidate: 60 * 30,
     },
+    signal: AbortSignal.timeout(CORE_CROSSREF_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -1495,8 +1545,10 @@ export async function GET(request: Request) {
   .map(normalizeCrossrefWork)
   .filter((article): article is GlobalArticle => Boolean(article));
 
-const articlesWithScimago = await Promise.all(
-  normalizedArticles.map(async (article) => {
+const articlesWithScimago = await mapWithConcurrency(
+  normalizedArticles,
+  5,
+  async (article) => {
     const scimagoMatchedArticle = enrichWithScimago(
       article,
       scimagoJournals
@@ -1521,7 +1573,7 @@ const articlesWithScimago = await Promise.all(
     );
 
     return enrichWithScimago(openAlexImprovedArticle, scimagoJournals);
-  })
+  }
 );
 
 const articles = articlesWithScimago.filter((article) => {
