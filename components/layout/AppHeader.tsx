@@ -3,25 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SignInButton, UserButton, useAuth } from "@clerk/nextjs";
-
-const desktopNavItems = [
-  { href: "/dashboard", label: "الرئيسية" },
-  { href: "/search", label: "البحث" },
-  { href: "/library", label: "مكتبتي" },
-  { href: "/workspace", label: "مساحة العمل" },
-  { href: "/review", label: "المراجعة المنهجية" },
-  { href: "/alerts", label: "التنبيهات" },
-  { href: "/journals", label: "المجلات" },
-  { href: "/iraqi-journals", label: "المجلات العراقية" },
-];
-
-const mobileNavItems = [
-  { href: "/dashboard", label: "الرئيسية", icon: "⌂" },
-  { href: "/search", label: "البحث", icon: "⌕" },
-  { href: "/library", label: "مكتبتي", icon: "▤" },
-  { href: "/workspace", label: "العمل", icon: "◆" },
-  { href: "/review", label: "المراجعة", icon: "✓" },
-];
+import { useLanguage } from "@/components/i18n/LanguageProvider";
 
 function isActive(pathname: string, href: string) {
   if (href === "/dashboard") {
@@ -33,12 +15,32 @@ function isActive(pathname: string, href: string) {
 export default function AppHeader() {
   const pathname = usePathname();
   const { isSignedIn, isLoaded } = useAuth();
+  const { locale, dir, toggleLocale, t } = useLanguage();
+
+  const desktopNavItems = [
+    { href: "/dashboard", label: t("nav.home") },
+    { href: "/search", label: t("nav.search") },
+    { href: "/library", label: t("nav.library") },
+    { href: "/workspace", label: t("nav.workspace") },
+    { href: "/review", label: t("nav.review") },
+    { href: "/alerts", label: t("nav.alerts") },
+    { href: "/journals", label: t("nav.journals") },
+    { href: "/iraqi-journals", label: t("nav.iraqiJournals") },
+  ];
+
+  const mobileNavItems = [
+    { href: "/dashboard", label: t("nav.home"), icon: "⌂" },
+    { href: "/search", label: t("nav.search"), icon: "⌕" },
+    { href: "/library", label: t("nav.library"), icon: "▤" },
+    { href: "/workspace", label: t("nav.workspaceShort"), icon: "◆" },
+    { href: "/review", label: t("nav.reviewShort"), icon: "✓" },
+  ];
 
   return (
     <>
       <header
         className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl"
-        dir="rtl"
+        dir={dir}
       >
         <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
           <Link href="/dashboard" className="flex min-w-0 items-center gap-3">
@@ -50,7 +52,7 @@ export default function AppHeader() {
                 ResearchRanker
               </span>
               <span className="hidden truncate text-[11px] font-semibold text-slate-500 sm:block">
-                مساحة ذكاء بحثي موثّق
+                {t("brand.subtitle")}
               </span>
             </span>
           </Link>
@@ -75,18 +77,27 @@ export default function AppHeader() {
             })}
           </nav>
 
-          <div className="mr-auto flex shrink-0 items-center gap-2 md:mr-0">
+          <div className="ms-auto flex shrink-0 items-center gap-2 md:ms-0">
+            <button
+              type="button"
+              onClick={toggleLocale}
+              aria-label={t("language.toggle")}
+              title={t("language.toggle")}
+              className="grid h-9 min-w-9 place-items-center rounded-xl border border-slate-300 bg-white px-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+            >
+              {locale === "ar" ? "EN" : "ع"}
+            </button>
             <Link
               href="/alerts"
               className="hidden rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 sm:inline-flex md:hidden"
             >
-              التنبيهات
+              {t("nav.alerts")}
             </Link>
             <Link
               href="/search"
               className="hidden rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 xl:inline-flex"
             >
-              بحث جديد
+              {t("nav.newSearch")}
             </Link>
             {!isLoaded ? (
               <span
@@ -103,7 +114,7 @@ export default function AppHeader() {
                   type="button"
                   className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
                 >
-                  دخول
+                  {t("auth.signIn")}
                 </button>
               </SignInButton>
             )}
@@ -113,8 +124,8 @@ export default function AppHeader() {
 
       <nav
         className="fixed inset-x-3 bottom-3 z-50 grid grid-cols-5 gap-1 rounded-2xl border border-slate-200/90 bg-white/95 p-1.5 shadow-2xl backdrop-blur-xl md:hidden"
-        dir="rtl"
-        aria-label="التنقل الرئيسي للهاتف"
+        dir={dir}
+        aria-label={t("mobile.navigation")}
       >
         {mobileNavItems.map((item) => {
           const active = isActive(pathname, item.href);
