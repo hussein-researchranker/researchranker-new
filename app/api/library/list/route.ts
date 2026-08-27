@@ -33,17 +33,17 @@ function normalizeArticle(value: unknown): LibraryArticle | null {
         : (value as LibraryArticle);
 
     const id = article.id || article.pmid || article.title || "";
-
     if (!id) return null;
 
     return {
       ...article,
       id,
-      source: article.source || "PubMed",
+      source: article.source || "Academic metadata",
       sourceUrl: article.sourceUrl || article.pubmedUrl || "",
       pubmedUrl: article.pubmedUrl || article.sourceUrl || "",
-      quartile: article.quartile || "Not found",
-      indexingStatus: article.indexingStatus || "Unknown / check manually",
+      quartile: article.quartile || "Not verified",
+      indexingStatus:
+        article.indexingStatus || "Unknown / check manually",
       matchConfidence: article.matchConfidence || "Not matched",
     };
   } catch (error) {
@@ -67,7 +67,7 @@ export async function GET() {
     const ids = (await redis.smembers(indexKey)) as string[];
 
     if (!Array.isArray(ids) || ids.length === 0) {
-      return Response.json({ articles: [] });
+      return Response.json({ articles: [], storage: "persistent" });
     }
 
     const articleKeys = ids.map((id) => `library:${userId}:article:${id}`);
@@ -79,25 +79,23 @@ export async function GET() {
       .sort((a, b) => {
         const aTime = Date.parse(a.savedAt || "");
         const bTime = Date.parse(b.savedAt || "");
-
         return (
           (Number.isFinite(bTime) ? bTime : 0) -
           (Number.isFinite(aTime) ? aTime : 0)
         );
       });
 
-    return Response.json({ articles });
+    return Response.json({ articles, storage: "persistent" });
   } catch (error) {
-    console.error("List library error:", error);
-
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to load library.";
+    console.error("List library storage error:", error);
 
     return Response.json(
-      { error: message },
-      { status: 500 }
+      {
+        error:
+          "Persistent library storage is currently unavailable. Your saved research cannot be loaded until the database connection is restored.",
+        code: "PERSISTENT_STORAGE_UNAVAILABLE",
+      },
+      { status: 503 }
     );
   }
 }
