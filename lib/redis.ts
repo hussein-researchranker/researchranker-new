@@ -3,12 +3,14 @@ import { Redis } from "@upstash/redis";
 let redisClient: Redis | null = null;
 
 function getRedisClient() {
-  const redisUrl = process.env.KV_REST_API_URL;
-  const redisToken = process.env.KV_REST_API_TOKEN;
+  const redisUrl =
+    process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
+  const redisToken =
+    process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
 
   if (!redisUrl || !redisToken) {
     throw new Error(
-      "Missing Redis environment variables. Please set KV_REST_API_URL and KV_REST_API_TOKEN."
+      "Missing Redis environment variables. Please set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN."
     );
   }
 
