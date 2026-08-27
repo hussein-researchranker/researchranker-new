@@ -168,17 +168,30 @@ export default function ResultsPage() {
     {}
   );
   const [savingIds, setSavingIds] = useState<Record<string, boolean>>({});
-const [pdfLoading, setPdfLoading] = useState<Record<string, boolean>>({});
-const [pdfResults, setPdfResults] = useState<Record<string, PdfCheckResult>>({});
+  const [pdfLoading, setPdfLoading] = useState<Record<string, boolean>>({});
+  const [pdfResults, setPdfResults] = useState<Record<string, PdfCheckResult>>({});
+
+  const isDoiSearch = useMemo(() => /10\.\d{4,9}\//i.test(query), [query]);
+
   const filteredArticles = useMemo(() => {
-    if (quartile === "All") return articles;
+    if (quartile === "All" || isDoiSearch) return articles;
 
-    return articles.filter((article) => {
+    const matched = articles.filter((article) => {
       const articleQuartile = cleanText(article.quartile);
-
       return articleQuartile === quartile || articleQuartile === "Not found";
     });
-  }, [articles, quartile]);
+
+    return matched.length > 0 ? matched : articles;
+  }, [articles, quartile, isDoiSearch]);
+
+  const showingQuartileFallback = useMemo(() => {
+    if (quartile === "All" || isDoiSearch || articles.length === 0) return false;
+
+    return !articles.some((article) => {
+      const articleQuartile = cleanText(article.quartile);
+      return articleQuartile === quartile || articleQuartile === "Not found";
+    });
+  }, [articles, quartile, isDoiSearch]);
 
   const verifiedCount = useMemo(() => {
     return filteredArticles.filter(isVerifiedQuartile).length;
@@ -207,7 +220,7 @@ const [pdfResults, setPdfResults] = useState<Record<string, PdfCheckResult>>({})
         const params = new URLSearchParams({
           query: q.trim(),
           fromYear: "1990",
-          toYear: "2026",
+          toYear: new Date().getFullYear().toString(),
           maxResults: "50",
           field: selectedField,
         });
@@ -227,9 +240,7 @@ const [pdfResults, setPdfResults] = useState<Record<string, PdfCheckResult>>({})
       } catch (error) {
         console.error("Results page search error:", error);
         setMessage(
-          error instanceof Error
-            ? error.message
-            : "فشل تحميل نتائج البحث."
+          error instanceof Error ? error.message : "فشل تحميل نتائج البحث."
         );
       } finally {
         setLoading(false);
@@ -348,57 +359,54 @@ const [pdfResults, setPdfResults] = useState<Record<string, PdfCheckResult>>({})
       setSummaryLoading((current) => ({ ...current, [articleId]: false }));
     }
   }
-async function checkPdfAccess(article: Article) {
-  const articleId = article.doi || article.pmid || article.title || "";
 
-  if (!articleId) {
-    setMessage("لا يمكن فحص PDF بدون DOI أو معرف واضح.");
-    return;
-  }
+  async function checkPdfAccess(article: Article) {
+    const articleId = article.doi || article.pmid || article.title || "";
 
-  if (!article.doi) {
-    setMessage("لا يمكن فحص الوصول المفتوح لأن هذا المصدر لا يحتوي DOI.");
-    return;
-  }
-
-  try {
-    setPdfLoading((current) => ({ ...current, [articleId]: true }));
-
-    const params = new URLSearchParams({
-      doi: article.doi,
-    });
-
-    const response = await fetch(`/api/pdf-check?${params.toString()}`);
-    const data = (await response.json()) as PdfCheckResult;
-
-    setPdfResults((current) => ({ ...current, [articleId]: data }));
-
-    if (!response.ok) {
-      throw new Error(data?.error || "PDF check failed.");
-    }
-
-    if (data.pdfUrl) {
-      window.open(data.pdfUrl, "_blank", "noopener,noreferrer");
-      setMessage("تم فتح رابط PDF المفتوح قانونياً.");
+    if (!articleId) {
+      setMessage("لا يمكن فحص PDF بدون DOI أو معرف واضح.");
       return;
     }
 
-    if (data.landingPageUrl) {
-      window.open(data.landingPageUrl, "_blank", "noopener,noreferrer");
-      setMessage(data.message || "تم فتح صفحة الوصول المفتوح.");
+    if (!article.doi) {
+      setMessage("لا يمكن فحص الوصول المفتوح لأن هذا المصدر لا يحتوي DOI.");
       return;
     }
 
-    setMessage(data.message || "لا يوجد PDF مفتوح قانونياً لهذا المصدر.");
-  } catch (error) {
-    console.error("PDF check error:", error);
-    setMessage(
-      error instanceof Error ? error.message : "فشل فحص PDF / Open Access."
-    );
-  } finally {
-    setPdfLoading((current) => ({ ...current, [articleId]: false }));
+    try {
+      setPdfLoading((current) => ({ ...current, [articleId]: true }));
+
+      const params = new URLSearchParams({ doi: article.doi });
+      const response = await fetch(`/api/pdf-check?${params.toString()}`);
+      const data = (await response.json()) as PdfCheckResult;
+
+      setPdfResults((current) => ({ ...current, [articleId]: data }));
+
+      if (!response.ok) {
+        throw new Error(data?.error || "PDF check failed.");
+      }
+
+      if (data.pdfUrl) {
+        window.open(data.pdfUrl, "_blank", "noopener,noreferrer");
+        setMessage("تم فتح رابط PDF المفتوح قانونياً.");
+        return;
+      }
+
+      if (data.landingPageUrl) {
+        window.open(data.landingPageUrl, "_blank", "noopener,noreferrer");
+        setMessage(data.message || "تم فتح صفحة الوصول المفتوح.");
+        return;
+      }
+
+      setMessage(data.message || "لا يوجد PDF مفتوح قانونياً لهذا المصدر.");
+    } catch (error) {
+      console.error("PDF check error:", error);
+      setMessage(error instanceof Error ? error.message : "فشل فحص PDF / Open Access.");
+    } finally {
+      setPdfLoading((current) => ({ ...current, [articleId]: false }));
+    }
   }
-}
+
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-8" dir="rtl">
       <section className="mx-auto max-w-6xl">
@@ -406,26 +414,17 @@ async function checkPdfAccess(article: Article) {
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-sm font-bold text-blue-700">Search Results</p>
-              <h1 className="mt-2 text-3xl font-black text-slate-900">
-                نتائج البحث المباشرة
-              </h1>
+              <h1 className="mt-2 text-3xl font-black text-slate-900">نتائج البحث المباشرة</h1>
               <p className="mt-3 text-sm leading-7 text-slate-600">
-                النتائج مفلترة حسب الربع المختار والتخصص القادم من صفحة البحث.
-                تظهر حالة التحقق من تصنيف المجلة بوضوح لتجنب التصنيف المضلل.
+                تظهر نتائج البحث مع حالة التحقق من تصنيف المجلة بوضوح لتجنب التصنيف المضلل.
               </p>
             </div>
 
             <div className="flex items-center gap-3">
-              <Link
-                href="/search"
-                className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700"
-              >
+              <Link href="/search" className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700">
                 بحث جديد
               </Link>
-              <Link
-                href="/dashboard"
-                className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white"
-              >
+              <Link href="/dashboard" className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white">
                 لوحة التحكم
               </Link>
               <UserButton />
@@ -434,71 +433,51 @@ async function checkPdfAccess(article: Article) {
         </header>
 
         <section className="mb-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="grid gap-4 md:grid-cols-5">
-            <div className="rounded-2xl bg-slate-50 p-4">
+          <div className="grid gap-4 md:grid-cols-4">
+            <div>
               <p className="text-xs font-bold text-slate-500">موضوع البحث</p>
-              <p className="mt-1 font-bold text-slate-900">
-                {query || "غير محدد"}
-              </p>
+              <p className="mt-1 text-sm font-black text-slate-900">{query || "-"}</p>
             </div>
-
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-xs font-bold text-slate-500">الربع المطلوب</p>
-              <p className="mt-1 font-bold text-slate-900">{quartile}</p>
+            <div>
+              <p className="text-xs font-bold text-slate-500">الربع</p>
+              <p className="mt-1 text-sm font-black text-slate-900">{isDoiSearch ? "All (DOI)" : quartile}</p>
             </div>
-
-            <div className="rounded-2xl bg-slate-50 p-4">
+            <div>
               <p className="text-xs font-bold text-slate-500">التخصص</p>
-              <p className="mt-1 font-bold text-slate-900">{field}</p>
+              <p className="mt-1 text-sm font-black text-slate-900">{field}</p>
             </div>
-
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-xs font-bold text-slate-500">عدد النتائج</p>
-              <p className="mt-1 font-bold text-slate-900">
-                {filteredArticles.length}
-              </p>
+            <div>
+              <p className="text-xs font-bold text-slate-500">نتائج موثقة الربع</p>
+              <p className="mt-1 text-sm font-black text-slate-900">{verifiedCount}</p>
             </div>
-
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-xs font-bold text-slate-500">
-                تصنيف موثّق
-              </p>
-              <p className="mt-1 font-bold text-slate-900">
-                {verifiedCount}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-7 text-amber-900">
-            <strong>ملاحظة علمية:</strong> ظهور عبارة{" "}
-            <strong>Not found - Check manually</strong> لا يعني أن المصدر غير
-            مفيد، بل يعني أن النظام لم يستطع تأكيد الربع بأمان من بيانات
-            Crossref/OpenAlex وملف SCImago المحلي.
-          </div>
-
-          <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <label className="text-sm font-bold text-slate-700">
-              نمط الاقتباس
-            </label>
-            <select
-              value={citationStyle}
-              onChange={(event) =>
-                setCitationStyle(event.target.value as CitationStyle)
-              }
-              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700"
-            >
-              <option value="IEEE">IEEE</option>
-              <option value="Vancouver">Vancouver</option>
-              <option value="APA">APA</option>
-            </select>
           </div>
         </section>
 
-        {message && (
-          <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-800">
-            {message}
+        {showingQuartileFallback && (
+          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold leading-7 text-amber-800">
+            لم نجد نتيجة مطابقة للربع {quartile} ضمن النتائج الحالية، لذلك نعرض النتائج العلمية المرتبطة بالموضوع بدلاً من إخفائها. تحقق من الربع الظاهر لكل مجلة قبل الاعتماد.
           </div>
         )}
+
+        {message && (
+          <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-800">{message}</div>
+        )}
+
+        <section className="mb-6 flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <span className="text-sm font-black text-slate-700">نمط الاقتباس:</span>
+          {(["IEEE", "Vancouver", "APA"] as CitationStyle[]).map((style) => (
+            <button
+              key={style}
+              type="button"
+              onClick={() => setCitationStyle(style)}
+              className={`rounded-xl px-4 py-2 text-sm font-bold ${
+                citationStyle === style ? "bg-blue-600 text-white" : "border border-slate-300 bg-white text-slate-700"
+              }`}
+            >
+              {style}
+            </button>
+          ))}
+        </section>
 
         {loading ? (
           <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center font-bold text-slate-700 shadow-sm">
@@ -506,190 +485,74 @@ async function checkPdfAccess(article: Article) {
           </div>
         ) : filteredArticles.length === 0 ? (
           <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center font-bold text-slate-700 shadow-sm">
-            لا توجد نتائج مطابقة لهذا الربع والتخصص.
+            لا توجد نتائج لهذا الاستعلام في المصادر المتاحة حالياً.
           </div>
         ) : (
           <div className="space-y-5">
             {filteredArticles.map((article, index) => {
-              const articleId =
-                article.doi || article.pmid || article.title || String(index);
-
-              const sourceUrl =
-                article.sourceUrl ||
-                article.pubmedUrl ||
-                (article.pmid
-                  ? `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`
-                  : "");
+              const articleId = article.doi || article.pmid || article.title || String(index);
+              const sourceUrl = article.sourceUrl || article.pubmedUrl || doiUrl(article.doi || "");
 
               return (
-                <article
-                  key={articleId}
-                  className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
-                >
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-wide text-blue-700">
-                        {getArticleSourceLabel(article)}
-                        {article.pmid ? ` • PMID: ${article.pmid}` : ""}
-                        {article.doi ? ` • DOI: ${article.doi}` : ""}
-                      </p>
-                      <h2 className="mt-2 text-xl font-black leading-8 text-slate-900">
-                        {article.title || "Untitled article"}
-                      </h2>
+                <article key={`${articleId}-${index}`} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-3 flex flex-wrap gap-2">
+                        <span className={`rounded-full border px-3 py-1 text-xs font-black ${getQuartileBadgeClass(article)}`}>
+                          {getQuartileLabel(article)}
+                        </span>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-black text-slate-600">
+                          {getArticleSourceLabel(article)}
+                        </span>
+                      </div>
+
+                      <h2 className="text-xl font-black leading-8 text-slate-900">{article.title || "Untitled article"}</h2>
+                      <p className="mt-3 text-sm leading-7 text-slate-600">{getVerificationNote(article)}</p>
+
+                      <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
+                        <p><span className="font-black text-slate-700">المجلة:</span> {article.journal || "-"}</p>
+                        <p><span className="font-black text-slate-700">التاريخ:</span> {article.pubdate || "-"}</p>
+                        <p><span className="font-black text-slate-700">المؤلفون:</span> {article.authors || "-"}</p>
+                        <p><span className="font-black text-slate-700">DOI:</span> {article.doi || "-"}</p>
+                        <p><span className="font-black text-slate-700">ISSN:</span> {article.issn || "-"}</p>
+                        <p><span className="font-black text-slate-700">الناشر:</span> {article.publisher || "-"}</p>
+                        <p><span className="font-black text-slate-700">SJR:</span> {article.sjr || "-"}</p>
+                        <p><span className="font-black text-slate-700">H-index:</span> {article.hIndex || "-"}</p>
+                      </div>
+
+                      {article.abstract && (
+                        <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-700">{article.abstract}</p>
+                      )}
+
+                      {summaries[articleId] && (
+                        <pre className="mt-4 whitespace-pre-wrap rounded-2xl border border-purple-200 bg-purple-50 p-4 text-sm leading-7 text-slate-700">{summaries[articleId]}</pre>
+                      )}
+
+                      {pdfResults[articleId] && !pdfLoading[articleId] && (
+                        <p className="mt-3 text-xs font-bold text-slate-500">{pdfResults[articleId].message || "تم فحص الوصول المفتوح."}</p>
+                      )}
                     </div>
 
-                    <div className="flex flex-col items-start gap-2 md:items-end">
-                      <span
-                        className={`rounded-full border px-4 py-2 text-sm font-black ${getQuartileBadgeClass(
-                          article
-                        )}`}
-                      >
-                        {getQuartileLabel(article)}
-                      </span>
-
-                      <span className="max-w-xs text-xs font-bold leading-5 text-slate-500 md:text-left">
-                        {getVerificationNote(article)}
-                      </span>
+                    <div className="flex w-full flex-col gap-2 lg:w-52">
+                      {sourceUrl && (
+                        <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="rounded-xl bg-slate-900 px-4 py-3 text-center text-sm font-bold text-white">
+                          فتح المصدر
+                        </a>
+                      )}
+                      <button type="button" onClick={() => copyCitation(article, index)} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700">
+                        نسخ الاقتباس
+                      </button>
+                      <button type="button" onClick={() => summarizeArticle(article)} disabled={summaryLoading[articleId]} className="rounded-xl border border-purple-200 bg-purple-50 px-4 py-3 text-sm font-bold text-purple-700 disabled:opacity-50">
+                        {summaryLoading[articleId] ? "جاري التلخيص..." : "AI Summary"}
+                      </button>
+                      <button type="button" onClick={() => saveArticle(article)} disabled={savingIds[articleId]} className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700 disabled:opacity-50">
+                        {savingIds[articleId] ? "جاري الحفظ..." : "Save to Library"}
+                      </button>
+                      <button type="button" onClick={() => checkPdfAccess(article)} disabled={pdfLoading[articleId]} className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 disabled:opacity-50">
+                        {pdfLoading[articleId] ? "جاري الفحص..." : "PDF / Open Access"}
+                      </button>
                     </div>
                   </div>
-
-                  <div className="mt-4 grid gap-3 text-sm text-slate-600 md:grid-cols-2">
-                    <p>
-                      <span className="font-bold text-slate-800">
-                        Journal:
-                      </span>{" "}
-                      {article.journal || "Unknown"}
-                    </p>
-
-                    <p>
-                      <span className="font-bold text-slate-800">Date:</span>{" "}
-                      {article.pubdate || "Unknown"}
-                    </p>
-
-                    <p>
-                      <span className="font-bold text-slate-800">DOI:</span>{" "}
-                      {article.doi || "Not available"}
-                    </p>
-
-                    <p>
-                      <span className="font-bold text-slate-800">
-                        Indexing:
-                      </span>{" "}
-                      {article.indexingStatus || "Unknown / check manually"}
-                    </p>
-
-                    <p>
-                      <span className="font-bold text-slate-800">
-                        Match confidence:
-                      </span>{" "}
-                      {article.matchConfidence || "Not available"}
-                    </p>
-
-                    <p>
-                      <span className="font-bold text-slate-800">ISSN:</span>{" "}
-                      {article.issn || "Not available"}
-                    </p>
-
-                    <p>
-                      <span className="font-bold text-slate-800">SJR:</span>{" "}
-                      {article.sjr || "Not available"}
-                    </p>
-
-                    <p>
-                      <span className="font-bold text-slate-800">
-                        H-index:
-                      </span>{" "}
-                      {article.hIndex || "Not available"}
-                    </p>
-
-                    <p className="md:col-span-2">
-                      <span className="font-bold text-slate-800">
-                        Publisher:
-                      </span>{" "}
-                      {article.publisher || "Not available"}
-                    </p>
-                  </div>
-
-                  {article.abstract && (
-                    <p className="mt-4 line-clamp-4 text-sm leading-7 text-slate-600">
-                      {article.abstract}
-                    </p>
-                  )}
-
-                  <div className="mt-5 flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={() => copyCitation(article, index)}
-                      className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700"
-                    >
-                      توليد الاقتباس
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => saveArticle(article)}
-                      disabled={savingIds[articleId]}
-                      className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 disabled:opacity-60"
-                    >
-                      {savingIds[articleId]
-                        ? "جاري الحفظ..."
-                        : "حفظ في المكتبة"}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => summarizeArticle(article)}
-                      disabled={summaryLoading[articleId]}
-                      className="rounded-xl border border-purple-200 bg-purple-50 px-4 py-2 text-sm font-bold text-purple-700 disabled:opacity-60"
-                    >
-                      {summaryLoading[articleId]
-                        ? "جاري التلخيص..."
-                        : "التلخيص الذكي ✨"}
-                    </button>
-
- <button
-  type="button"
-  onClick={() => checkPdfAccess(article)}
-  disabled={pdfLoading[articleId] || !article.doi}
-  className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-bold text-orange-700 disabled:opacity-60"
->
-  {pdfLoading[articleId] ? "جاري فحص PDF..." : "PDF / Open Access"}
-</button>
-
-{sourceUrl && (
-  <a
-    href={sourceUrl}
-    target="_blank"
-    rel="noopener noreferrer"
-    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700"
-  >
-    فتح صفحة المصدر
-  </a>
-)}
-                  </div>
-{pdfResults[articleId] && (
-  <div className="mt-4 rounded-2xl border border-orange-100 bg-orange-50 p-4 text-sm leading-7 text-orange-900">
-    <p className="font-black">PDF / Open Access Status</p>
-    <p>{pdfResults[articleId].message || "No message returned."}</p>
-    <p>
-      <span className="font-bold">OA status:</span>{" "}
-      {pdfResults[articleId].oaStatus || "Unknown"}
-    </p>
-    <p>
-      <span className="font-bold">License:</span>{" "}
-      {pdfResults[articleId].license || "Not available"}
-    </p>
-    <p>
-      <span className="font-bold">Version:</span>{" "}
-      {pdfResults[articleId].version || "Not available"}
-    </p>
-  </div>
-)}
-                  {summaries[articleId] && (
-                    <pre className="mt-5 whitespace-pre-wrap rounded-2xl border border-purple-100 bg-purple-50 p-4 text-sm leading-7 text-slate-700">
-                      {summaries[articleId]}
-                    </pre>
-                  )}
                 </article>
               );
             })}
