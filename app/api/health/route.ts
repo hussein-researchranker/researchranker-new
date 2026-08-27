@@ -10,9 +10,6 @@ export async function GET() {
     process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY
   );
   const aiConfigured = Boolean(process.env.GEMINI_API_KEY);
-  const scholarlySearchConfigured = Boolean(
-    process.env.OPENALEX_API_KEY || true
-  );
 
   const status = storage.ok ? "ok" : "degraded";
 
@@ -29,7 +26,7 @@ export async function GET() {
         application: true,
         authenticationConfigured: authConfigured,
         aiConfigured,
-        scholarlySearchConfigured,
+        scholarlySearchAvailable: true,
         persistentStorage: {
           configured: storage.configured,
           healthy: storage.ok,
