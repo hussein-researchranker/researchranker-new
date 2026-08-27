@@ -22,6 +22,21 @@ type LibraryArticle = {
   matchConfidence?: string;
 };
 
+type StoredLibraryArticle = LibraryArticle & {
+  savedAt?: string;
+  updatedAt?: string;
+  favorite?: boolean;
+  readingStatus?: "to-read" | "reading" | "read";
+  notes?: string;
+  tags?: string[];
+  collection?: string;
+  screeningStatus?: "include" | "exclude" | "maybe" | "unscreened";
+  exclusionReason?: string;
+  fullTextStatus?: "pending" | "retrieved" | "unavailable" | "not-needed";
+  duplicateOf?: string;
+  extraction?: Record<string, string>;
+};
+
 function cleanText(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
@@ -49,7 +64,6 @@ export async function POST(request: Request) {
     }
 
     const body = (await request.json()) as LibraryArticle;
-
     const pmid = cleanText(body.pmid);
     const title = cleanText(body.title);
 
@@ -63,8 +77,10 @@ export async function POST(request: Request) {
     const id = makeArticleId(body);
     const articleKey = `library:${userId}:article:${id}`;
     const indexKey = `library:${userId}:ids`;
+    const existing = await redis.get<StoredLibraryArticle>(articleKey);
+    const now = new Date().toISOString();
 
-    const article = {
+    const article: StoredLibraryArticle = {
       id,
       pmid,
       title,
@@ -85,7 +101,21 @@ export async function POST(request: Request) {
       publisher: cleanText(body.publisher),
       issn: cleanText(body.issn),
       matchConfidence: cleanText(body.matchConfidence || "Not matched"),
-      savedAt: new Date().toISOString(),
+      savedAt: existing?.savedAt || now,
+      updatedAt: now,
+      favorite: existing?.favorite ?? false,
+      readingStatus: existing?.readingStatus || "to-read",
+      notes: existing?.notes || "",
+      tags: Array.isArray(existing?.tags) ? existing.tags : [],
+      collection: existing?.collection || "Unsorted",
+      screeningStatus: existing?.screeningStatus || "unscreened",
+      exclusionReason: existing?.exclusionReason || "",
+      fullTextStatus: existing?.fullTextStatus || "pending",
+      duplicateOf: existing?.duplicateOf || "",
+      extraction:
+        existing?.extraction && typeof existing.extraction === "object"
+          ? existing.extraction
+          : {},
     };
 
     await redis.set(articleKey, article);
@@ -94,6 +124,7 @@ export async function POST(request: Request) {
     return Response.json({
       success: true,
       article,
+      alreadySaved: Boolean(existing),
     });
   } catch (error) {
     console.error("Save library article error:", error);
