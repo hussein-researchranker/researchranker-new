@@ -32,7 +32,7 @@ export async function GET() {
       return Response.json({ searches: [] });
     }
 
-    const values = await redis.mget<SavedSearch[]>(
+    const values = await redis.mget<SavedSearch>(
       ...ids.map((id) => `saved-searches:${userId}:item:${id}`)
     );
 
