@@ -78,6 +78,14 @@ export default function AppHeader() {
           </nav>
 
           <div className="ms-auto flex shrink-0 items-center gap-2 md:ms-0">
+            <Link
+              href="/library/export"
+              aria-label={t("library.export")}
+              title={t("library.export")}
+              className="grid h-9 min-w-9 place-items-center rounded-xl border border-slate-300 bg-white px-2 text-base font-black text-slate-700 hover:bg-slate-50"
+            >
+              ⇩
+            </Link>
             <button
               type="button"
               onClick={toggleLocale}
