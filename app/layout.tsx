@@ -45,7 +45,7 @@ export default function RootLayout({
         dir="rtl"
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <body>{children}</body>
+        <body className="pb-24 md:pb-0">{children}</body>
       </html>
     </ClerkProvider>
   );
