@@ -1,5 +1,7 @@
+import { auth } from "@clerk/nextjs/server";
 import JournalSlider from "@/components/journals/JournalSlider";
 
-export default function JournalsPage() {
+export default async function JournalsPage() {
+  await auth.protect();
   return <JournalSlider />;
 }
