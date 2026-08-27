@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Quartile = "All" | "Q1" | "Q2" | "Q3" | "Q4";
 
@@ -16,11 +16,7 @@ const quartileOptions: Array<{
   label: string;
   description: string;
 }> = [
-  {
-    value: "All",
-    label: "الكل",
-    description: "الأفضل للبحث العام و DOI",
-  },
+  { value: "All", label: "الكل", description: "موصى به للعثور على المصدر أولاً" },
   { value: "Q1", label: "Q1", description: "الربع الأول" },
   { value: "Q2", label: "Q2", description: "الربع الثاني" },
   { value: "Q3", label: "Q3", description: "الربع الثالث" },
@@ -52,223 +48,247 @@ const fieldOptions: FieldOption[] = [
   { value: "geography", labelAr: "الجغرافية", labelEn: "Geography" },
 ];
 
+const examples = [
+  "الإجهاد التأكسدي لدى مرضى غسيل الكلى",
+  "artificial intelligence in clinical chemistry",
+  "10.1016/j.procs.2020.09.151",
+];
+
 function looksLikeDoi(value: string) {
   return /10\.\d{4,9}\//i.test(value);
 }
 
 export default function SearchWizard() {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [quartile, setQuartile] = useState<Quartile>("All");
   const [field, setField] = useState("all");
   const [query, setQuery] = useState("");
+  const [showFields, setShowFields] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const detectedDoi = useMemo(() => looksLikeDoi(query), [query]);
+  const selectedField = useMemo(
+    () => fieldOptions.find((option) => option.value === field) || fieldOptions[0],
+    [field]
+  );
+
+  useEffect(() => {
+    inputRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.isContentEditable;
+
+      if (event.key === "/" && !typing) {
+        event.preventDefault();
+        inputRef.current?.focus();
+      }
+
+      if (event.key === "Escape") {
+        setShowFields(false);
+        inputRef.current?.blur();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   function startSearch() {
     const cleanQuery = query.trim();
-
     if (!cleanQuery) return;
 
     const effectiveQuartile = looksLikeDoi(cleanQuery) ? "All" : quartile;
+    const effectiveField = looksLikeDoi(cleanQuery) ? "all" : field;
     const params = new URLSearchParams({
       q: cleanQuery,
       quartile: effectiveQuartile,
-      field,
+      field: effectiveField,
     });
 
     window.location.href = `/results?${params.toString()}`;
   }
 
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    startSearch();
+  }
+
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-10" dir="rtl">
-      <section className="mx-auto max-w-4xl rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-        <div className="mb-8 flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-bold text-blue-700">Search Wizard</p>
-            <h1 className="mt-2 text-3xl font-black text-slate-900">
-              البحث عن المصادر خطوة بخطوة
-            </h1>
-            <p className="mt-3 text-sm leading-7 text-slate-600">
-              ابحث بالإنجليزية أو العربية، أو الصق DOI مباشرة. للبحث عن موضوع عام اختر "الكل" حتى لا يتم استبعاد نتائج صحيحة بسبب الربع.
-            </p>
-          </div>
-
-          <Link
-            href="/dashboard"
-            className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700"
-          >
-            رجوع
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#dbeafe_0,#f8fafc_34%,#f8fafc_100%)] px-3 py-4 sm:px-6 sm:py-8" dir="rtl">
+      <section className="mx-auto max-w-6xl">
+        <header className="mb-5 flex items-center justify-between gap-3 rounded-2xl border border-white/80 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-xl sm:px-5">
+          <Link href="/dashboard" className="flex items-center gap-3 rounded-xl">
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-slate-950 text-sm font-black text-white">R</div>
+            <div>
+              <p className="text-sm font-black text-slate-950">ResearchRanker</p>
+              <p className="hidden text-xs text-slate-500 sm:block">Academic Search</p>
+            </div>
           </Link>
-        </div>
+          <div className="flex gap-2">
+            <Link href="/journals" className="hidden rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 sm:inline-flex">تحقق من مجلة</Link>
+            <Link href="/dashboard" className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white">لوحة التحكم</Link>
+          </div>
+        </header>
 
-        <div className="mb-8 grid gap-3 sm:grid-cols-3">
-          <div
-            className={`rounded-2xl border p-4 text-center text-sm font-bold ${
-              step === 1
-                ? "border-blue-600 bg-blue-50 text-blue-700"
-                : "border-slate-200 bg-slate-50 text-slate-500"
-            }`}
-          >
-            1. الربع
-          </div>
-          <div
-            className={`rounded-2xl border p-4 text-center text-sm font-bold ${
-              step === 2
-                ? "border-blue-600 bg-blue-50 text-blue-700"
-                : "border-slate-200 bg-slate-50 text-slate-500"
-            }`}
-          >
-            2. التخصص
-          </div>
-          <div
-            className={`rounded-2xl border p-4 text-center text-sm font-bold ${
-              step === 3
-                ? "border-blue-600 bg-blue-50 text-blue-700"
-                : "border-slate-200 bg-slate-50 text-slate-500"
-            }`}
-          >
-            3. البحث
-          </div>
-        </div>
-
-        {step === 1 && (
-          <div>
-            <h2 className="text-xl font-black text-slate-900">
-              اختر الربع المطلوب
-            </h2>
-            <p className="mt-2 text-sm leading-7 text-slate-600">
-              اختر "الكل" إذا كان هدفك العثور على البحث أولاً. يمكنك اختيار Q1–Q4 إذا كنت تريد تقييد العرض بربع محدد.
+        <section className="overflow-hidden rounded-[32px] border border-slate-200 bg-slate-950 p-5 text-white shadow-2xl sm:p-8 lg:p-10">
+          <div className="max-w-3xl">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-300">Evidence-first academic discovery</p>
+            <h1 className="mt-3 text-3xl font-black leading-tight sm:text-4xl lg:text-5xl">ابحث مباشرة، ثم دع النظام يتحقق من بيانات المصدر.</h1>
+            <p className="mt-4 text-sm leading-8 text-slate-300 sm:text-base">
+              اكتب بالعربية أو الإنجليزية، الصق عنواناً كاملاً، أو أدخل DOI. البحث عن DOI يتجاوز تلقائياً فلاتر الربع والتخصص حتى لا تُخفى النتيجة الصحيحة.
             </p>
+          </div>
 
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-              {quartileOptions.map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  onClick={() => {
-                    setQuartile(item.value);
-                    setStep(2);
-                  }}
-                  className={`rounded-2xl border px-4 py-5 text-center transition ${
-                    quartile === item.value
-                      ? "border-blue-600 bg-blue-600 text-white"
-                      : "border-slate-200 bg-slate-50 text-slate-800 hover:bg-slate-100"
-                  }`}
-                >
-                  <p className="text-xl font-black">{item.label}</p>
-                  <p
-                    className={`mt-2 text-xs font-bold ${
-                      quartile === item.value ? "text-blue-100" : "text-slate-500"
+          <form onSubmit={submit} className="mt-7 rounded-[24px] bg-white p-2 shadow-2xl">
+            <div className="flex flex-col gap-2 md:flex-row">
+              <div className="relative flex-1">
+                <input
+                  ref={inputRef}
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="موضوع البحث، العنوان، الكلمات المفتاحية، أو DOI"
+                  aria-label="موضوع البحث"
+                  className="min-h-14 w-full rounded-2xl border border-transparent bg-slate-50 px-4 pe-14 text-sm font-bold text-slate-950 outline-none placeholder:font-medium placeholder:text-slate-400 focus:border-blue-300 focus:bg-white"
+                />
+                <kbd className="pointer-events-none absolute left-3 top-1/2 hidden -translate-y-1/2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-black text-slate-400 sm:block">/</kbd>
+              </div>
+              <button
+                type="submit"
+                disabled={!query.trim()}
+                className="min-h-14 rounded-2xl bg-blue-600 px-7 text-sm font-black text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                بحث الآن
+              </button>
+            </div>
+
+            {detectedDoi ? (
+              <div className="mt-2 flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold leading-6 text-emerald-800">
+                <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+                تم اكتشاف DOI. سيتم البحث المباشر عن المعرف باستخدام مصادر metadata متعددة، ولن يطبق فلتر Q أو التخصص على هذه العملية.
+              </div>
+            ) : null}
+          </form>
+        </section>
+
+        <section className="mt-5 grid gap-5 lg:grid-cols-[.8fr_1.2fr]">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-blue-700">Quartile filter</p>
+                <h2 className="mt-1 text-xl font-black text-slate-950">الربع المطلوب</h2>
+              </div>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{detectedDoi ? "All (DOI)" : quartile}</span>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-5 lg:grid-cols-2 xl:grid-cols-5">
+              {quartileOptions.map((item) => {
+                const active = (detectedDoi ? "All" : quartile) === item.value;
+                return (
+                  <button
+                    key={item.value}
+                    type="button"
+                    disabled={detectedDoi && item.value !== "All"}
+                    onClick={() => setQuartile(item.value)}
+                    className={`rounded-2xl border p-3 text-center ${
+                      active
+                        ? "border-blue-600 bg-blue-600 text-white"
+                        : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white"
                     }`}
                   >
-                    {item.description}
-                  </p>
-                </button>
-              ))}
+                    <p className="font-black">{item.label}</p>
+                    <p className={`mt-1 hidden text-[10px] leading-4 xl:block ${active ? "text-blue-100" : "text-slate-400"}`}>{item.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-medium leading-6 text-amber-900">
+              اختيار Q يفلتر العرض، لكنه لا يجعل تصنيف المجلة مؤكداً. حالة التحقق تُعرض لكل نتيجة بصورة مستقلة.
             </div>
           </div>
-        )}
 
-        {step === 2 && (
-          <div>
-            <h2 className="text-xl font-black text-slate-900">
-              اختر التخصص
-            </h2>
-            <p className="mt-2 text-sm leading-7 text-slate-600">
-              التخصص يساعد النظام على فهم المصطلحات، خصوصاً عند البحث باللغة العربية.
-            </p>
-
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              {fieldOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => {
-                    setField(option.value);
-                    setStep(3);
-                  }}
-                  className={`rounded-2xl border p-4 text-right transition ${
-                    field === option.value
-                      ? "border-blue-600 bg-blue-50"
-                      : "border-slate-200 bg-slate-50 hover:bg-slate-100"
-                  }`}
-                >
-                  <p className="font-black text-slate-900">{option.labelAr}</p>
-                  <p className="mt-1 text-xs font-bold text-slate-500">
-                    {option.labelEn}
-                  </p>
-                </button>
-              ))}
-            </div>
-
-            <div className="mt-8">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-violet-700">Field context</p>
+                <h2 className="mt-1 text-xl font-black text-slate-950">التخصص</h2>
+              </div>
               <button
                 type="button"
-                onClick={() => setStep(1)}
-                className="w-full rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700"
+                onClick={() => setShowFields((current) => !current)}
+                disabled={detectedDoi}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-black text-slate-700 hover:bg-white disabled:opacity-50"
               >
-                رجوع
+                {detectedDoi ? "كل التخصصات (DOI)" : selectedField.labelAr}
               </button>
             </div>
-          </div>
-        )}
 
-        {step === 3 && (
-          <div>
-            <h2 className="text-xl font-black text-slate-900">
-              اكتب موضوع البحث أو DOI
-            </h2>
-            <p className="mt-2 text-sm leading-7 text-slate-600">
-              يمكنك كتابة الموضوع بالعربية أو الإنجليزية. إذا أدخلت DOI أو رابط doi.org فسيتم البحث عنه مباشرة بدون تقييد بالربع.
-            </p>
-
-            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl bg-white p-3 text-sm font-bold text-slate-700">
-                  الربع المختار: {quartile === "All" ? "الكل" : quartile}
-                </div>
-                <div className="rounded-xl bg-white p-3 text-sm font-bold text-slate-700">
-                  التخصص:{" "}
-                  {fieldOptions.find((option) => option.value === field)?.labelAr ||
-                    "كل التخصصات"}
+            {showFields && !detectedDoi ? (
+              <div className="mt-4 max-h-[360px] overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {fieldOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        setField(option.value);
+                        setShowFields(false);
+                      }}
+                      className={`rounded-xl border p-3 text-right ${
+                        field === option.value
+                          ? "border-violet-500 bg-violet-50"
+                          : "border-slate-200 bg-white hover:border-slate-300"
+                      }`}
+                    >
+                      <p className="text-sm font-black text-slate-900">{option.labelAr}</p>
+                      <p className="mt-1 text-[11px] font-medium text-slate-400">{option.labelEn}</p>
+                    </button>
+                  ))}
                 </div>
               </div>
+            ) : (
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs font-bold text-slate-400">التخصص الحالي</p>
+                  <p className="mt-1 font-black text-slate-950">{detectedDoi ? "كل التخصصات" : selectedField.labelAr}</p>
+                  <p className="mt-1 text-xs text-slate-500">{detectedDoi ? "Exact identifier search" : selectedField.labelEn}</p>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs font-bold text-slate-400">لغة البحث</p>
+                  <p className="mt-1 font-black text-slate-950">العربية والإنجليزية</p>
+                  <p className="mt-1 text-xs text-slate-500">المصطلحات العربية تُحوّل إلى صياغة أكاديمية محافظة عند الحاجة.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
 
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") startSearch();
-                }}
-                placeholder="مثال: الذكاء الاصطناعي في تشخيص أمراض القلب أو 10.xxxx/xxxxx"
-                className="w-full rounded-xl border border-slate-300 bg-white p-4 text-sm outline-none focus:border-blue-500"
-              />
-
-              {looksLikeDoi(query) && (
-                <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-700">
-                  تم اكتشاف DOI. سيتم تنفيذ بحث مباشر عن المعرف وتجاهل فلتر الربع حتى لا يتم إخفاء البحث الصحيح.
-                </p>
-              )}
+        <section className="mt-5 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="font-black text-slate-950">أمثلة سريعة للاختبار</h2>
+              <p className="mt-1 text-xs leading-6 text-slate-500">اضغط على مثال لوضعه في صندوق البحث ثم عدّله كما تريد.</p>
             </div>
-
-            <div className="mt-6 flex gap-3">
-              <button
-                type="button"
-                onClick={() => setStep(2)}
-                className="w-1/3 rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700"
-              >
-                رجوع
-              </button>
-
-              <button
-                type="button"
-                onClick={startSearch}
-                disabled={!query.trim()}
-                className="w-2/3 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white disabled:opacity-50"
-              >
-                بحث
-              </button>
+            <div className="flex flex-wrap gap-2">
+              {examples.map((example) => (
+                <button
+                  key={example}
+                  type="button"
+                  onClick={() => {
+                    setQuery(example);
+                    inputRef.current?.focus();
+                  }}
+                  className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-white"
+                >
+                  {example}
+                </button>
+              ))}
             </div>
           </div>
-        )}
+        </section>
       </section>
     </main>
   );
