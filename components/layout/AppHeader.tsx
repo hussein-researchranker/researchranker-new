@@ -26,6 +26,9 @@ const mobileItems = [
   { href: "/review", ar: "مراجعة", en: "Review", icon: "✓" },
 ];
 
+const ALERT_CHECK_STORAGE_KEY = "researchranker-last-alert-check";
+const ALERT_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
 function isActive(pathname: string, href: string) {
   if (href === "/dashboard") return pathname === "/dashboard" || pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -69,6 +72,37 @@ export default function AppHeader() {
       window.clearInterval(interval);
     };
   }, [isSignedIn, pathname]);
+
+  useEffect(() => {
+    if (!isSignedIn) return;
+
+    const lastCheck = Number(window.localStorage.getItem(ALERT_CHECK_STORAGE_KEY) || "0");
+    if (Date.now() - lastCheck < ALERT_CHECK_INTERVAL_MS) return;
+
+    let cancelled = false;
+
+    async function checkSavedSearches() {
+      try {
+        const response = await fetch("/api/alerts/check", { method: "POST" });
+        if (!response.ok || cancelled) return;
+
+        window.localStorage.setItem(ALERT_CHECK_STORAGE_KEY, String(Date.now()));
+        const alertsResponse = await fetch("/api/alerts", { cache: "no-store" });
+        if (!alertsResponse.ok || cancelled) return;
+        const data = await alertsResponse.json();
+        const alerts = Array.isArray(data?.alerts) ? data.alerts : [];
+        setUnreadAlerts(alerts.filter((alert: { read?: boolean }) => !alert.read).length);
+      } catch {
+        // Automatic checks are opportunistic. The manual check remains available.
+      }
+    }
+
+    const idle = window.setTimeout(checkSavedSearches, 1500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(idle);
+    };
+  }, [isSignedIn]);
 
   return (
     <>
@@ -175,7 +209,9 @@ export default function AppHeader() {
               <span className="text-lg leading-none" aria-hidden="true">
                 {item.icon}
               </span>
-              <span className="mt-1 max-w-full truncate">{locale === "ar" ? item.ar : item.en}</span>
+              <span className="mt-1 max-w-full truncate">
+                {locale === "ar" ? item.ar : item.en}
+              </span>
               {alertsItem && unreadAlerts > 0 ? (
                 <span className="absolute end-2 top-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-blue-600 px-1 text-[8px] text-white">
                   {unreadAlerts > 9 ? "9+" : unreadAlerts}
