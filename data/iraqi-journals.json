@@ -58,19 +58,38 @@
   ],
   "news": [
     {
-      "title": "IASJ بوابة أساسية للمجلات العراقية",
-      "tag": "محلي",
-      "description": "استخدم IASJ كبداية للعثور على المجلات العراقية حسب المؤسسة والتخصص، ثم تحقق من التصنيف العالمي من SCImago أو Scopus."
+      "title": "جامعة الموصل تنشر بحثاً في مجلة دولية Q1 ضمن Frontiers in Immunology",
+      "tag": "خبر رسمي",
+      "description": "وزارة التعليم العالي العراقية نشرت في 23 آب 2026 خبراً عن بحث مشترك من كلية العلوم بجامعة الموصل في Frontiers in Immunology، مع الإشارة إلى تصنيف المجلة ضمن Q1 في Scopus وWeb of Science.",
+      "source": "وزارة التعليم العالي والبحث العلمي العراقية",
+      "date": "2026-08-23",
+      "url": "https://www.mohesr.gov.iq/en/post/mosul-university-publishes-research-in-q1-international-journal-on-developing-vaccine-for-urinary-tract-infections-2026-08-23-13"
+    },
+    {
+      "title": "ارتفاع CiteScore لعدد من المجلات العراقية المفهرسة في Scopus",
+      "tag": "فهرسة",
+      "description": "أعلنت الوزارة في تموز 2025 عن تحسن مؤشرات CiteScore لمجلات عراقية وازدياد حضورها في قاعدة Scopus. يُستخدم الخبر كإشارة متابعة، بينما يبقى التحقق الحالي لكل مجلة من المصدر الدولي ضرورياً.",
+      "source": "وزارة التعليم العالي والبحث العلمي العراقية",
+      "date": "2025-07-08",
+      "url": "https://www.mohesr.gov.iq/en/post/higher-education-announces-qualitative-achievement-with-rise-in-citescore-index-for-iraqi-journals-in-scopus-database-2025-07-08-23"
+    },
+    {
+      "title": "مؤتمر هيئات تحرير المجلات العراقية يناقش التوسع في الفهرسة الدولية",
+      "tag": "تحرير وفهرسة",
+      "description": "المؤتمر الأول لهيئات تحرير المجلات العلمية العراقية ركز على الحوكمة التحريرية، التحكيم، إدارة البيانات، والفهرسة، مع مشاركة جهات دولية متخصصة.",
+      "source": "وزارة التعليم العالي والبحث العلمي العراقية",
+      "date": "2025-09-10",
+      "url": "https://mohesr.gov.iq/en/post/during-1st-conference-of-editorial-boards-of-scientific-journals-dr-alaboudi-confirms-doubling-presence-of-iraqi-university-journals-in-international-publications-2025-09-10-19"
+    },
+    {
+      "title": "IASJ بوابة أساسية للوصول إلى المجلات العراقية",
+      "tag": "دليل محلي",
+      "description": "استخدم IASJ كبداية للعثور على المجلات العراقية حسب المؤسسة والتخصص، ثم تحقق من التصنيف العالمي من SCImago أو Scopus قبل اتخاذ قرار النشر."
     },
     {
       "title": "لا تعتمد الربع بدون ISSN مطابق",
       "tag": "تحقق",
       "description": "اسم المجلة وحده قد يسبب خطأ في المطابقة. الأفضل استخدام ISSN أو رابط SCImago الرسمي قبل اعتبار المجلة Q1/Q2/Q3/Q4."
-    },
-    {
-      "title": "انتبه من التشابه بين أسماء المجلات",
-      "tag": "تنبيه",
-      "description": "بعض المجلات تحمل أسماء متشابهة عالمياً. لذلك يجب عدم الاعتماد على partial match وحده لتحديد التصنيف."
     }
   ],
   "alerts": [

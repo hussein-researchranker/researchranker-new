@@ -1,5 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "regions": ["fra1"],
-  "functionFailoverRegions": ["dub1"]
+  "functionFailoverRegions": ["dub1"],
+  "git": {
+    "deploymentEnabled": {
+      "agent/**": false
+    }
+  }
 }
