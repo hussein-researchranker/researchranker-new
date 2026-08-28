@@ -24,6 +24,7 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import re
 
           path = Path("app/api/global-search/route.ts")
           text = path.read_text()
@@ -200,31 +201,23 @@ jobs:
               raise SystemExit("OpenAlex enrichment anchor not found")
           text = text.replace(old_enrichment, new_enrichment, 1)
 
-          timeout_anchors = [
-            '''      headers: {
-                    Accept: "application/json",
-                    "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
-                  },
-                  next: {''',
-          ]
-          anchor = timeout_anchors[0]
-          count = text.count(anchor)
+          timeout_anchor = '''      },
+                next: {'''
+          timeout_replacement = '''      },
+                signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+                next: {'''
+          count = text.count(timeout_anchor)
           if count != 3:
               raise SystemExit(f"Expected 3 upstream fetch anchors, found {count}")
-          text = text.replace(
-              anchor,
-              '''      headers: {
-                    Accept: "application/json",
-                    "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
-                  },
-                  signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-                  next: {'''
-          )
+          text = text.replace(timeout_anchor, timeout_replacement)
 
-          old_success = '''    return Response.json(articles);'''
-          if old_success not in text:
+          if '''    return Response.json(articles);''' not in text:
               raise SystemExit("Success response anchor not found")
-          text = text.replace(old_success, '''    return Response.json(articles, { headers });''', 1)
+          text = text.replace(
+              '''    return Response.json(articles);''',
+              '''    return Response.json(articles, { headers });''',
+              1,
+          )
 
           old_catch = '''    return Response.json(
                 { error: "Global search failed because of a server error." },
