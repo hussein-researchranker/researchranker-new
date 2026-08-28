@@ -42,7 +42,7 @@ jobs:
         with:
           name: researchranker-build-log-${{ github.run_number }}
           path: build.log
-          if-no-files-found: error
+          if-no-files-found: ignore
       - name: Enforce build result
         shell: bash
         run: exit "${build_exit:-1}"
