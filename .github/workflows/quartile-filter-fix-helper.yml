@@ -1,0 +1,55 @@
+name: Quartile Filter Correctness Helper
+
+on:
+  push:
+    branches:
+      - agent/quartile-filter-correctness-2026-08-28
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/quartile-filter-correctness-2026-08-28
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Apply strict verified-quartile filter
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("app/results/page.tsx")
+          text = path.read_text()
+          old = '''    return articles.filter((article) => {
+                if (!isVerifiedQuartile(article)) return true;
+                return cleanText(article.quartile) === quartile;
+              });'''
+          new = '''    return articles.filter(
+                (article) =>
+                  isVerifiedQuartile(article) &&
+                  cleanText(article.quartile) === quartile
+              );'''
+          if old not in text:
+              raise SystemExit("Expected quartile-filter block was not found")
+          path.write_text(text.replace(old, new, 1))
+      - run: npm ci
+      - name: Type check patched result page
+        run: npx tsc --noEmit
+      - name: Production build
+        run: npm run build
+      - name: Commit verified correctness fix and remove helper
+        shell: bash
+        run: |
+          rm .github/workflows/quartile-filter-fix-helper.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/results/page.tsx .github/workflows/quartile-filter-fix-helper.yml
+          git commit -m "fix: require verified evidence for quartile filters"
+          git push origin HEAD:agent/quartile-filter-correctness-2026-08-28
