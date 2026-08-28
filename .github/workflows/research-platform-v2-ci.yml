@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - agent/research-platform-v2
+      - "agent/**"
   pull_request:
     branches:
       - main
@@ -24,6 +24,10 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Type check
+        run: npm run typecheck
       - name: Build application
         shell: bash
         run: |

@@ -37,19 +37,33 @@ type StoredLibraryArticle = LibraryArticle & {
   extraction?: Record<string, string>;
 };
 
-function cleanText(value: unknown) {
-  return String(value ?? "").replace(/\s+/g, " ").trim();
+function cleanText(value: unknown, max = 4000) {
+  return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function cleanUrl(value: unknown) {
+  const raw = cleanText(value, 1500);
+  if (!raw) return "";
+
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.toString()
+      : "";
+  } catch {
+    return "";
+  }
 }
 
 function makeArticleId(article: LibraryArticle) {
-  const pmid = cleanText(article.pmid);
-  const title = cleanText(article.title);
-  const providedId = cleanText(article.id);
+  const pmid = cleanText(article.pmid, 120);
+  const title = cleanText(article.title, 1000);
+  const providedId = cleanText(article.id, 500);
 
   if (providedId) return providedId;
   if (pmid) return pmid;
 
-  return encodeURIComponent(title.toLowerCase());
+  return encodeURIComponent(title.toLowerCase()).slice(0, 500);
 }
 
 export async function POST(request: Request) {
@@ -64,8 +78,8 @@ export async function POST(request: Request) {
     }
 
     const body = (await request.json()) as LibraryArticle;
-    const pmid = cleanText(body.pmid);
-    const title = cleanText(body.title);
+    const pmid = cleanText(body.pmid, 120);
+    const title = cleanText(body.title, 1000);
 
     if (!pmid && !title) {
       return Response.json(
@@ -75,6 +89,10 @@ export async function POST(request: Request) {
     }
 
     const id = makeArticleId(body);
+    if (!id) {
+      return Response.json({ error: "Invalid article ID." }, { status: 400 });
+    }
+
     const articleKey = `library:${userId}:article:${id}`;
     const indexKey = `library:${userId}:ids`;
     const existing = await redis.get<StoredLibraryArticle>(articleKey);
@@ -84,23 +102,24 @@ export async function POST(request: Request) {
       id,
       pmid,
       title,
-      journal: cleanText(body.journal),
-      pubdate: cleanText(body.pubdate),
-      authors: cleanText(body.authors),
-      doi: cleanText(body.doi),
-      abstract: cleanText(body.abstract),
-      source: cleanText(body.source || "PubMed"),
-      sourceUrl: cleanText(body.sourceUrl || body.pubmedUrl),
-      pubmedUrl: cleanText(body.pubmedUrl || body.sourceUrl),
-      quartile: cleanText(body.quartile || "Not found"),
+      journal: cleanText(body.journal, 500),
+      pubdate: cleanText(body.pubdate, 120),
+      authors: cleanText(body.authors, 1500),
+      doi: cleanText(body.doi, 300),
+      abstract: cleanText(body.abstract, 12000),
+      source: cleanText(body.source || "PubMed", 120),
+      sourceUrl: cleanUrl(body.sourceUrl || body.pubmedUrl),
+      pubmedUrl: cleanUrl(body.pubmedUrl || body.sourceUrl),
+      quartile: cleanText(body.quartile || "Not found", 20),
       indexingStatus: cleanText(
-        body.indexingStatus || "Unknown / check manually"
+        body.indexingStatus || "Unknown / check manually",
+        250
       ),
-      sjr: cleanText(body.sjr),
-      hIndex: cleanText(body.hIndex),
-      publisher: cleanText(body.publisher),
-      issn: cleanText(body.issn),
-      matchConfidence: cleanText(body.matchConfidence || "Not matched"),
+      sjr: cleanText(body.sjr, 50),
+      hIndex: cleanText(body.hIndex, 50),
+      publisher: cleanText(body.publisher, 500),
+      issn: cleanText(body.issn, 120),
+      matchConfidence: cleanText(body.matchConfidence || "Not matched", 300),
       savedAt: existing?.savedAt || now,
       updatedAt: now,
       favorite: existing?.favorite ?? false,

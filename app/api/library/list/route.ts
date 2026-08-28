@@ -23,6 +23,10 @@ type LibraryArticle = {
   savedAt?: string;
 };
 
+const PRIVATE_HEADERS = {
+  "Cache-Control": "private, no-store, max-age=0",
+};
+
 function normalizeArticle(value: unknown): LibraryArticle | null {
   if (!value) return null;
 
@@ -59,7 +63,7 @@ export async function GET() {
     if (!userId) {
       return Response.json(
         { error: "You must sign in to view your library." },
-        { status: 401 }
+        { status: 401, headers: PRIVATE_HEADERS }
       );
     }
 
@@ -67,7 +71,7 @@ export async function GET() {
     const ids = (await redis.smembers(indexKey)) as string[];
 
     if (!Array.isArray(ids) || ids.length === 0) {
-      return Response.json({ articles: [] });
+      return Response.json({ articles: [] }, { headers: PRIVATE_HEADERS });
     }
 
     const articleKeys = ids.map((id) => `library:${userId}:article:${id}`);
@@ -86,18 +90,13 @@ export async function GET() {
         );
       });
 
-    return Response.json({ articles });
+    return Response.json({ articles }, { headers: PRIVATE_HEADERS });
   } catch (error) {
     console.error("List library error:", error);
 
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to load library.";
-
     return Response.json(
-      { error: message },
-      { status: 500 }
+      { error: "Failed to load library." },
+      { status: 500, headers: PRIVATE_HEADERS }
     );
   }
 }
