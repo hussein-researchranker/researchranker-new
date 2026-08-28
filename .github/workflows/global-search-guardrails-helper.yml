@@ -1,0 +1,265 @@
+name: Global Search Guardrails Helper
+
+on:
+  push:
+    branches:
+      - agent/global-search-guardrails-2026-08-28
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/global-search-guardrails-2026-08-28
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Apply global search guardrails
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("app/api/global-search/route.ts")
+          text = path.read_text()
+
+          old_imports = '''import path from "path";
+          import { readFile } from "fs/promises";
+
+          export const runtime = "nodejs";'''
+          new_imports = '''import path from "path";
+          import { readFile } from "fs/promises";
+          import { checkRateLimit, rateLimitHeaders } from "@/lib/rate-limit";
+          import {
+            SEARCH_RATE_LIMIT,
+            SEARCH_RATE_WINDOW_SECONDS,
+            UPSTREAM_TIMEOUT_MS,
+            getSearchClientKey,
+            normalizeSearchField,
+            normalizeSearchQuery,
+            parseSearchResultLimit,
+            parseSearchYearRange,
+            selectOpenAlexCandidateIndexes,
+          } from "@/lib/search-guardrails.mjs";
+
+          export const runtime = "nodejs";'''
+          if old_imports not in text:
+              raise SystemExit("Import anchor not found")
+          text = text.replace(old_imports, new_imports, 1)
+
+          old_parse = '''    const query = cleanText(
+                searchParams.get("query") || searchParams.get("q") || ""
+              );
+              const field = cleanText(searchParams.get("field") || "all");
+              const currentYear = new Date().getFullYear();
+              const fromYear = parseYear(searchParams.get("fromYear"), 1990);
+              const toYear = parseYear(searchParams.get("toYear"), currentYear);
+              const maxResults = Math.min(
+                Math.max(Number(searchParams.get("maxResults") || "50"), 1),
+                100
+              );
+
+              if (!query) {
+                return Response.json(
+                  { error: "Missing query parameter." },
+                  { status: 400 }
+                );
+              }
+
+              const scimagoJournals = await loadScimagoJournals();'''
+          new_parse = '''    const queryState = normalizeSearchQuery(
+                searchParams.get("query") || searchParams.get("q") || ""
+              );
+              const query = queryState.query;
+              const field = normalizeSearchField(searchParams.get("field") || "all");
+              const currentYear = new Date().getFullYear();
+              const yearRange = parseSearchYearRange(
+                searchParams.get("fromYear"),
+                searchParams.get("toYear"),
+                currentYear
+              );
+              const maxResults = parseSearchResultLimit(searchParams.get("maxResults"));
+
+              if (!query) {
+                return Response.json(
+                  { error: "Missing query parameter." },
+                  { status: 400 }
+                );
+              }
+
+              if (queryState.tooLong) {
+                return Response.json(
+                  { error: "Search query is too long." },
+                  { status: 400 }
+                );
+              }
+
+              if (!yearRange.valid) {
+                return Response.json(
+                  { error: "Invalid publication year range." },
+                  { status: 400 }
+                );
+              }
+
+              const { fromYear, toYear } = yearRange;
+
+              let rateLimit;
+              try {
+                rateLimit = await checkRateLimit({
+                  key: getSearchClientKey(request.headers),
+                  limit: SEARCH_RATE_LIMIT,
+                  windowSeconds: SEARCH_RATE_WINDOW_SECONDS,
+                  prefix: "global-search",
+                });
+              } catch (rateLimitError) {
+                console.error("Global search rate limit error:", rateLimitError);
+                return Response.json(
+                  { error: "Search is temporarily unavailable. Please try again shortly." },
+                  { status: 503 }
+                );
+              }
+
+              const headers = {
+                ...rateLimitHeaders(rateLimit),
+                "Cache-Control": "private, no-store",
+              };
+
+              if (!rateLimit.allowed) {
+                return Response.json(
+                  { error: "Search request limit reached. Please wait before trying again." },
+                  { status: 429, headers }
+                );
+              }
+
+              const scimagoJournals = await loadScimagoJournals();'''
+          if old_parse not in text:
+              raise SystemExit("GET parsing anchor not found")
+          text = text.replace(old_parse, new_parse, 1)
+
+          old_enrichment = '''const articlesWithScimago = await Promise.all(
+            normalizedArticles.map(async (article) => {
+              const scimagoMatchedArticle = enrichWithScimago(
+                article,
+                scimagoJournals
+              );
+
+              if (
+                scimagoMatchedArticle.quartile !== "Not found" ||
+                !scimagoMatchedArticle.doi
+              ) {
+                return scimagoMatchedArticle;
+              }
+
+              const openAlexWork = await fetchOpenAlexByDoi(scimagoMatchedArticle.doi);
+
+              if (!openAlexWork) {
+                return scimagoMatchedArticle;
+              }
+
+              const openAlexImprovedArticle = improveArticleWithOpenAlexSource(
+                scimagoMatchedArticle,
+                openAlexWork
+              );
+
+              return enrichWithScimago(openAlexImprovedArticle, scimagoJournals);
+            })
+          );'''
+          new_enrichment = '''const scimagoMatchedArticles = normalizedArticles.map((article) =>
+            enrichWithScimago(article, scimagoJournals)
+          );
+          const openAlexCandidateIndexes = new Set(
+            selectOpenAlexCandidateIndexes(scimagoMatchedArticles)
+          );
+
+          const articlesWithScimago = await Promise.all(
+            scimagoMatchedArticles.map(async (article, index) => {
+              if (!openAlexCandidateIndexes.has(index)) {
+                return article;
+              }
+
+              const openAlexWork = await fetchOpenAlexByDoi(article.doi);
+
+              if (!openAlexWork) {
+                return article;
+              }
+
+              const openAlexImprovedArticle = improveArticleWithOpenAlexSource(
+                article,
+                openAlexWork
+              );
+
+              return enrichWithScimago(openAlexImprovedArticle, scimagoJournals);
+            })
+          );'''
+          if old_enrichment not in text:
+              raise SystemExit("OpenAlex enrichment anchor not found")
+          text = text.replace(old_enrichment, new_enrichment, 1)
+
+          timeout_anchors = [
+            '''      headers: {
+                    Accept: "application/json",
+                    "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
+                  },
+                  next: {''',
+          ]
+          anchor = timeout_anchors[0]
+          count = text.count(anchor)
+          if count != 3:
+              raise SystemExit(f"Expected 3 upstream fetch anchors, found {count}")
+          text = text.replace(
+              anchor,
+              '''      headers: {
+                    Accept: "application/json",
+                    "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
+                  },
+                  signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+                  next: {'''
+          )
+
+          old_success = '''    return Response.json(articles);'''
+          if old_success not in text:
+              raise SystemExit("Success response anchor not found")
+          text = text.replace(old_success, '''    return Response.json(articles, { headers });''', 1)
+
+          old_catch = '''    return Response.json(
+                { error: "Global search failed because of a server error." },
+                { status: 500 }
+              );'''
+          new_catch = '''    const isTimeout =
+                error instanceof Error &&
+                (error.name === "TimeoutError" || error.name === "AbortError");
+
+              return Response.json(
+                {
+                  error: isTimeout
+                    ? "Search upstream service timed out. Please try again."
+                    : "Global search failed because of a server error.",
+                },
+                { status: isTimeout ? 504 : 500 }
+              );'''
+          if old_catch not in text:
+              raise SystemExit("Catch response anchor not found")
+          text = text.replace(old_catch, new_catch, 1)
+
+          path.write_text(text)
+      - run: npm ci
+      - name: Unit tests
+        run: npm run test:unit
+      - name: Type check
+        run: npm run typecheck
+      - name: Production build
+        run: npm run build
+      - name: Commit verified guardrails and remove helper
+        shell: bash
+        run: |
+          rm .github/workflows/global-search-guardrails-helper.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/api/global-search/route.ts .github/workflows/global-search-guardrails-helper.yml
+          git commit -m "security: throttle and bound public scholarly search"
+          git push origin HEAD:agent/global-search-guardrails-2026-08-28
