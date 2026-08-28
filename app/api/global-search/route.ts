@@ -12,6 +12,12 @@ import {
   parseSearchYearRange,
   selectOpenAlexCandidateIndexes,
 } from "@/lib/search-guardrails.mjs";
+import {
+  findScimagoMatch,
+  getTitleTokens,
+  normalizeJournalTitle,
+  splitIssns,
+} from "@/lib/journal-matching.mjs";
 
 export const runtime = "nodejs";
 
@@ -962,19 +968,6 @@ const cleanQuery = enhanceArabicQuery(query, field);
   return `${cleanQuery} ${filter}`;
 }
 
-function normalizeIssn(value: string) {
-  return cleanText(value)
-    .replace(/[^0-9xX]/g, "")
-    .toUpperCase();
-}
-
-function splitIssns(value: string) {
-  return cleanText(value)
-    .split(/[,; ]+/)
-    .map(normalizeIssn)
-    .filter(Boolean);
-}
-
 function getCrossrefIssns(work: CrossrefWork) {
   const issnsFromIssn = Array.isArray(work.ISSN) ? work.ISSN : [];
   const issnsFromIssnType = Array.isArray(work["issn-type"])
@@ -986,55 +979,6 @@ function getCrossrefIssns(work: CrossrefWork) {
   return Array.from(new Set([...issnsFromIssn, ...issnsFromIssnType]))
     .map(cleanText)
     .filter(Boolean);
-}
-
-function normalizeJournalTitle(value: string) {
-  return cleanText(value)
-    .toLowerCase()
-    .replace(/&/g, "and")
-    .replace(/\bthe\b/g, "")
-    .replace(/\bjournal of\b/g, "journal")
-    .replace(/\binternational journal of\b/g, "international journal")
-    .replace(/\bproceedings of\b/g, "proceedings")
-    .replace(/\btransactions on\b/g, "transactions")
-    .replace(/\bmagazine\b/g, "")
-    .replace(/\bletters\b/g, "")
-    .replace(/\breview\b/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getTitleTokens(value: string) {
-  const stopWords = new Set([
-    "and",
-    "of",
-    "the",
-    "in",
-    "on",
-    "for",
-    "to",
-    "a",
-    "an",
-    "journal",
-    "international",
-  ]);
-
-  return normalizeJournalTitle(value)
-    .split(" ")
-    .filter((token) => token.length >= 3 && !stopWords.has(token));
-}
-
-function tokenSimilarity(a: string[], b: string[]) {
-  if (!a.length || !b.length) return 0;
-
-  const aSet = new Set(a);
-  const bSet = new Set(b);
-
-  const intersection = [...aSet].filter((token) => bSet.has(token)).length;
-  const union = new Set([...aSet, ...bSet]).size;
-
-  return union === 0 ? 0 : intersection / union;
 }
 
 function normalizeCrossrefWork(work: CrossrefWork): GlobalArticle | null {
@@ -1207,71 +1151,6 @@ async function loadScimagoJournals() {
   scimagoCache = journals;
 
   return scimagoCache;
-}
-
-function findScimagoMatch(article: GlobalArticle, journals: ScimagoJournal[]) {
-  const articleIssns = splitIssns(article.issn);
-
-  if (articleIssns.length > 0) {
-    const issnMatch = journals.find((journal) =>
-      journal.issns.some((journalIssn) => articleIssns.includes(journalIssn))
-    );
-
-    if (issnMatch) {
-      return {
-        journal: issnMatch,
-        confidence: "ISSN exact match",
-      };
-    }
-  }
-
-  const articleJournalTitle = normalizeJournalTitle(article.journal);
-
-  if (!articleJournalTitle) {
-    return null;
-  }
-
-  const exactTitleMatch = journals.find(
-    (journal) => journal.normalizedTitle === articleJournalTitle
-  );
-
-  if (exactTitleMatch) {
-    return {
-      journal: exactTitleMatch,
-      confidence: "Journal title exact match",
-    };
-  }
-
-  const articleTokens = getTitleTokens(article.journal);
-
-  let bestMatch: {
-    journal: ScimagoJournal;
-    score: number;
-  } | null = null;
-
-  for (const journal of journals) {
-    if (!journal.normalizedTitle || journal.normalizedTitle.length < 10) {
-      continue;
-    }
-
-    const score = tokenSimilarity(articleTokens, journal.titleTokens);
-
-    if (score >= 0.92 && (!bestMatch || score > bestMatch.score)) {
-      bestMatch = {
-        journal,
-        score,
-      };
-    }
-  }
-
-  if (bestMatch) {
-    return {
-      journal: bestMatch.journal,
-      confidence: `Journal title strict token match (${bestMatch.score.toFixed(2)})`,
-    };
-  }
-
-  return null;
 }
 
 function enrichWithScimago(
