@@ -1,5 +1,17 @@
 import path from "path";
 import { readFile } from "fs/promises";
+import { checkRateLimit, rateLimitHeaders } from "@/lib/rate-limit";
+import {
+  SEARCH_RATE_LIMIT,
+  SEARCH_RATE_WINDOW_SECONDS,
+  UPSTREAM_TIMEOUT_MS,
+  getSearchClientKey,
+  normalizeSearchField,
+  normalizeSearchQuery,
+  parseSearchResultLimit,
+  parseSearchYearRange,
+  selectOpenAlexCandidateIndexes,
+} from "@/lib/search-guardrails.mjs";
 
 export const runtime = "nodejs";
 
@@ -1315,6 +1327,7 @@ async function fetchOpenAlexByDoi(doi: string) {
       Accept: "application/json",
       "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
     },
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     next: {
       revalidate: 60 * 60,
     },
@@ -1406,6 +1419,7 @@ async function fetchCrossrefByDoi(doi: string) {
         Accept: "application/json",
         "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
       },
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       next: {
         revalidate: 60 * 60,
       },
@@ -1442,6 +1456,7 @@ async function fetchCrossrefWorks(
       Accept: "application/json",
       "User-Agent": "ResearchRanker/1.0 (mailto:husseinjk40@gmail.com)",
     },
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     next: {
       revalidate: 60 * 30,
     },
@@ -1460,22 +1475,67 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
 
-    const query = cleanText(
+    const queryState = normalizeSearchQuery(
       searchParams.get("query") || searchParams.get("q") || ""
     );
-    const field = cleanText(searchParams.get("field") || "all");
+    const query = queryState.query;
+    const field = normalizeSearchField(searchParams.get("field") || "all");
     const currentYear = new Date().getFullYear();
-    const fromYear = parseYear(searchParams.get("fromYear"), 1990);
-    const toYear = parseYear(searchParams.get("toYear"), currentYear);
-    const maxResults = Math.min(
-      Math.max(Number(searchParams.get("maxResults") || "50"), 1),
-      100
+    const yearRange = parseSearchYearRange(
+      searchParams.get("fromYear"),
+      searchParams.get("toYear"),
+      currentYear
     );
+    const maxResults = parseSearchResultLimit(searchParams.get("maxResults"));
 
     if (!query) {
       return Response.json(
         { error: "Missing query parameter." },
         { status: 400 }
+      );
+    }
+
+    if (queryState.tooLong) {
+      return Response.json(
+        { error: "Search query is too long." },
+        { status: 400 }
+      );
+    }
+
+    if (!yearRange.valid) {
+      return Response.json(
+        { error: "Invalid publication year range." },
+        { status: 400 }
+      );
+    }
+
+    const { fromYear, toYear } = yearRange;
+
+    let rateLimit;
+    try {
+      rateLimit = await checkRateLimit({
+        key: getSearchClientKey(request.headers),
+        limit: SEARCH_RATE_LIMIT,
+        windowSeconds: SEARCH_RATE_WINDOW_SECONDS,
+        prefix: "global-search",
+      });
+    } catch (rateLimitError) {
+      console.error("Global search rate limit error:", rateLimitError);
+      return Response.json(
+        { error: "Search is temporarily unavailable. Please try again shortly." },
+        { status: 503 }
+      );
+    }
+
+    const headers = {
+      ...rateLimitHeaders(rateLimit),
+      "Cache-Control": "private, no-store",
+    };
+
+    if (!rateLimit.allowed) {
+      return Response.json(
+        { error: "Search request limit reached. Please wait before trying again." },
+        { status: 429, headers }
       );
     }
 
@@ -1495,28 +1555,27 @@ export async function GET(request: Request) {
   .map(normalizeCrossrefWork)
   .filter((article): article is GlobalArticle => Boolean(article));
 
-const articlesWithScimago = await Promise.all(
-  normalizedArticles.map(async (article) => {
-    const scimagoMatchedArticle = enrichWithScimago(
-      article,
-      scimagoJournals
-    );
+const scimagoMatchedArticles = normalizedArticles.map((article) =>
+  enrichWithScimago(article, scimagoJournals)
+);
+const openAlexCandidateIndexes = new Set(
+  selectOpenAlexCandidateIndexes(scimagoMatchedArticles)
+);
 
-    if (
-      scimagoMatchedArticle.quartile !== "Not found" ||
-      !scimagoMatchedArticle.doi
-    ) {
-      return scimagoMatchedArticle;
+const articlesWithScimago = await Promise.all(
+  scimagoMatchedArticles.map(async (article, index) => {
+    if (!openAlexCandidateIndexes.has(index)) {
+      return article;
     }
 
-    const openAlexWork = await fetchOpenAlexByDoi(scimagoMatchedArticle.doi);
+    const openAlexWork = await fetchOpenAlexByDoi(article.doi);
 
     if (!openAlexWork) {
-      return scimagoMatchedArticle;
+      return article;
     }
 
     const openAlexImprovedArticle = improveArticleWithOpenAlexSource(
-      scimagoMatchedArticle,
+      article,
       openAlexWork
     );
 
@@ -1532,13 +1591,21 @@ const articles = articlesWithScimago.filter((article) => {
   return year >= fromYear && year <= toYear;
 });
 
-    return Response.json(articles);
+    return Response.json(articles, { headers });
   } catch (error) {
     console.error("Global search route error:", error);
 
+    const isTimeout =
+      error instanceof Error &&
+      (error.name === "TimeoutError" || error.name === "AbortError");
+
     return Response.json(
-      { error: "Global search failed because of a server error." },
-      { status: 500 }
+      {
+        error: isTimeout
+          ? "Search upstream service timed out. Please try again."
+          : "Global search failed because of a server error.",
+      },
+      { status: isTimeout ? 504 : 500 }
     );
   }
 }
