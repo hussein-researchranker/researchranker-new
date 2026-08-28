@@ -25,6 +25,8 @@ export async function GET() {
         environment: process.env.VERCEL_ENV || process.env.NODE_ENV || "unknown",
         region: process.env.VERCEL_REGION || "unknown",
         commit: (process.env.VERCEL_GIT_COMMIT_SHA || "unknown").slice(0, 12),
+        branch: process.env.VERCEL_GIT_COMMIT_REF || "unknown",
+        url: process.env.VERCEL_URL || "unknown",
       },
       responseTimeMs: Date.now() - startedAt,
       checkedAt: new Date().toISOString(),
