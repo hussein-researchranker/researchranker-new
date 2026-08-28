@@ -174,10 +174,11 @@ export default function ResultsPage() {
   const filteredArticles = useMemo(() => {
     if (quartile === "All") return articles;
 
-    return articles.filter((article) => {
-      if (!isVerifiedQuartile(article)) return true;
-      return cleanText(article.quartile) === quartile;
-    });
+    return articles.filter(
+      (article) =>
+        isVerifiedQuartile(article) &&
+        cleanText(article.quartile) === quartile
+    );
   }, [articles, quartile]);
 
   const verifiedCount = useMemo(
