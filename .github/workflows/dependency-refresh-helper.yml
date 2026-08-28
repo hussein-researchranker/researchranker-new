@@ -5,12 +5,17 @@ on:
     branches:
       - agent/security-audit-2026-08-28
 
+permissions:
+  contents: write
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: agent/security-audit-2026-08-28
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -20,15 +25,13 @@ jobs:
         run: |
           npm install next@16.3.3 eslint-config-next@16.3.3 --save-exact --package-lock-only --ignore-scripts
           npm audit fix --omit=dev --package-lock-only --ignore-scripts
-      - name: Capture production dependency audit
+          npm audit --omit=dev --audit-level=high
+      - name: Commit refreshed lock and remove helper
         shell: bash
-        run: npm audit --omit=dev --json > npm-audit.json || true
-      - name: Upload refreshed dependency files
-        uses: actions/upload-artifact@v4
-        with:
-          name: dependency-refresh-${{ github.run_number }}
-          path: |
-            package.json
-            package-lock.json
-            npm-audit.json
-          if-no-files-found: error
+        run: |
+          rm .github/workflows/dependency-refresh-helper.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json .github/workflows/dependency-refresh-helper.yml
+          git commit -m "security: upgrade Next.js to patched 16.3.3"
+          git push origin HEAD:agent/security-audit-2026-08-28
