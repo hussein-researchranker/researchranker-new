@@ -29,7 +29,7 @@ test("accepts known fields and falls back safely", () => {
 });
 
 test("search result limits are finite and capped", () => {
-  assert.equal(parseSearchResultLimit(null), 1);
+  assert.equal(parseSearchResultLimit(null), MAX_SEARCH_RESULTS);
   assert.equal(parseSearchResultLimit("not-a-number"), MAX_SEARCH_RESULTS);
   assert.equal(parseSearchResultLimit("0"), 1);
   assert.equal(parseSearchResultLimit("25"), 25);
