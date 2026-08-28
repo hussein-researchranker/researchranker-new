@@ -13,8 +13,10 @@ The latest `main` revision passed the existing GitHub Actions production build b
 5. **Stored article input bounds** — saved library fields and URLs are normalized and length-limited before Redis storage.
 6. **Private library caching** — library-list responses explicitly use private no-store caching and no longer expose raw Redis exception text.
 7. **Browser security headers** — baseline anti-sniffing, frame, referrer, and browser-permission headers were added globally.
-8. **CI gates** — lint and TypeScript checks now run before the Next.js build, and CI covers all `agent/**` branches.
-9. **Operational documentation** — the default starter README was replaced with project-specific setup, quality, reliability, and deployment documentation.
+8. **CI gates** — production dependency audit, lint, TypeScript checks, and the Next.js production build are enforced in CI; CI covers `main`, pull requests, and all `agent/**` branches.
+9. **Framework security upgrade** — Next.js and `eslint-config-next` were upgraded from 16.2.7 to the patched 16.3.3 release. The nested `nanoid` dependency was also resolved from 5.1.11 to 5.1.16.
+10. **Dependency audit** — `npm audit --omit=dev` reports zero production dependency vulnerabilities after the lock-file refresh.
+11. **Operational documentation** — the default starter README was replaced with project-specific setup, quality, reliability, and deployment documentation.
 
 ## Existing lint debt discovered by the new gate
 
@@ -27,7 +29,6 @@ Next.js/React's current ESLint preset flags synchronous state initialization ins
 - Add request-cost controls to public scholarly-search endpoints. The global search path can perform multiple upstream calls and should eventually have IP/session throttling and stricter result caps.
 - Correct the client-side quartile filter so a Q1/Q2/Q3/Q4 selection excludes unverified records instead of keeping them in the selected result set.
 - Add unit tests for journal-identification confidence rules and regression tests for ISSN/title matching.
-- Review the dependency audit reported by `npm ci`; the current CI install reports high-severity advisories that need production-vs-development dependency triage before release.
 
 ### Medium priority
 
@@ -39,4 +40,4 @@ Next.js/React's current ESLint preset flags synchronous state initialization ins
 
 ### Release process
 
-Do not merge this batch to `main` until GitHub CI is green and the dependency audit has been triaged. Once Vercel's build-rate limit clears, merge or fast-forward the reviewed branch and verify `/api/health`, `/search`, `/results`, `/library`, and `/iraqi-journals` on the new production deployment.
+Do not merge this batch to `main` until the final GitHub CI run is green. Once Vercel's build-rate limit clears, merge or fast-forward the reviewed branch and verify `/api/health`, `/search`, `/results`, `/library`, and `/iraqi-journals` on the new production deployment.
