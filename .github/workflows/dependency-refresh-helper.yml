@@ -16,7 +16,10 @@ jobs:
           node-version: 20
           cache: npm
       - name: Generate patched dependency lock
-        run: npm install next@16.3.3 eslint-config-next@16.3.3 --save-exact --package-lock-only --ignore-scripts
+        shell: bash
+        run: |
+          npm install next@16.3.3 eslint-config-next@16.3.3 --save-exact --package-lock-only --ignore-scripts
+          npm audit fix --omit=dev --package-lock-only --ignore-scripts
       - name: Capture production dependency audit
         shell: bash
         run: npm audit --omit=dev --json > npm-audit.json || true
