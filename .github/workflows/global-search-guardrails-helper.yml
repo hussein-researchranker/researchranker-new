@@ -24,7 +24,6 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-          import re
 
           path = Path("app/api/global-search/route.ts")
           text = path.read_text()
@@ -201,15 +200,26 @@ jobs:
               raise SystemExit("OpenAlex enrichment anchor not found")
           text = text.replace(old_enrichment, new_enrichment, 1)
 
-          timeout_anchor = '''      },
+          four_space_anchor = '''    },
+              next: {'''
+          six_space_anchor = '''      },
                 next: {'''
-          timeout_replacement = '''      },
+          if text.count(four_space_anchor) != 2 or text.count(six_space_anchor) != 1:
+              raise SystemExit(
+                  f"Unexpected upstream fetch layout: four={text.count(four_space_anchor)}, six={text.count(six_space_anchor)}"
+              )
+          text = text.replace(
+              four_space_anchor,
+              '''    },
+              signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+              next: {'''
+          )
+          text = text.replace(
+              six_space_anchor,
+              '''      },
                 signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
                 next: {'''
-          count = text.count(timeout_anchor)
-          if count != 3:
-              raise SystemExit(f"Expected 3 upstream fetch anchors, found {count}")
-          text = text.replace(timeout_anchor, timeout_replacement)
+          )
 
           if '''    return Response.json(articles);''' not in text:
               raise SystemExit("Success response anchor not found")
