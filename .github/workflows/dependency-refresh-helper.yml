@@ -1,0 +1,31 @@
+name: Dependency Refresh Helper
+
+on:
+  push:
+    branches:
+      - agent/security-audit-2026-08-28
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Generate patched dependency lock
+        run: npm install next@16.3.3 eslint-config-next@16.3.3 --save-exact --package-lock-only --ignore-scripts
+      - name: Capture production dependency audit
+        shell: bash
+        run: npm audit --omit=dev --json > npm-audit.json || true
+      - name: Upload refreshed dependency files
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-refresh-${{ github.run_number }}
+          path: |
+            package.json
+            package-lock.json
+            npm-audit.json
+          if-no-files-found: error
