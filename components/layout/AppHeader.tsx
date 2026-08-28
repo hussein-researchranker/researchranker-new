@@ -6,9 +6,7 @@ import { SignInButton, UserButton, useAuth } from "@clerk/nextjs";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 
 function isActive(pathname: string, href: string) {
-  if (href === "/dashboard") {
-    return pathname === "/dashboard" || pathname === "/";
-  }
+  if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
@@ -18,7 +16,7 @@ export default function AppHeader() {
   const { locale, dir, toggleLocale, t } = useLanguage();
 
   const desktopNavItems = [
-    { href: "/dashboard", label: t("nav.home") },
+    { href: "/", label: t("nav.home") },
     { href: "/search", label: t("nav.search") },
     { href: "/library", label: t("nav.library") },
     { href: "/workspace", label: t("nav.workspace") },
@@ -29,7 +27,7 @@ export default function AppHeader() {
   ];
 
   const mobileNavItems = [
-    { href: "/dashboard", label: t("nav.home"), icon: "⌂" },
+    { href: "/", label: t("nav.home"), icon: "⌂" },
     { href: "/search", label: t("nav.search"), icon: "⌕" },
     { href: "/library", label: t("nav.library"), icon: "▤" },
     { href: "/workspace", label: t("nav.workspaceShort"), icon: "◆" },
@@ -43,8 +41,8 @@ export default function AppHeader() {
         dir={dir}
       >
         <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
-          <Link href="/dashboard" className="flex min-w-0 items-center gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-lg font-black text-white shadow-sm">
+          <Link href="/" className="flex min-w-0 items-center gap-3" aria-label="ResearchRanker home">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-lg font-black text-white shadow-sm">
               R
             </span>
             <span className="min-w-0 sm:block">
@@ -79,6 +77,14 @@ export default function AppHeader() {
 
           <div className="ms-auto flex shrink-0 items-center gap-2 md:ms-0">
             <Link
+              href="/dashboard"
+              aria-label={locale === "ar" ? "لوحة الباحث" : "Research dashboard"}
+              title={locale === "ar" ? "لوحة الباحث" : "Research dashboard"}
+              className="hidden rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:border-blue-200 hover:text-blue-700 lg:inline-flex"
+            >
+              {locale === "ar" ? "لوحة الباحث" : "Dashboard"}
+            </Link>
+            <Link
               href="/library/export"
               aria-label={t("library.export")}
               title={t("library.export")}
@@ -96,26 +102,15 @@ export default function AppHeader() {
               {locale === "ar" ? "EN" : "ع"}
             </button>
             <Link
-              href="/alerts"
-              className="hidden rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 sm:inline-flex md:hidden"
-            >
-              {t("nav.alerts")}
-            </Link>
-            <Link
               href="/search"
-              className="hidden rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 xl:inline-flex"
+              className="hidden rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700 xl:inline-flex"
             >
               {t("nav.newSearch")}
             </Link>
             {!isLoaded ? (
-              <span
-                className="h-9 w-9 animate-pulse rounded-full bg-slate-200"
-                aria-hidden="true"
-              />
+              <span className="h-9 w-9 animate-pulse rounded-full bg-slate-200" aria-hidden="true" />
             ) : isSignedIn ? (
-              <UserButton
-                appearance={{ elements: { avatarBox: "h-9 w-9" } }}
-              />
+              <UserButton appearance={{ elements: { avatarBox: "h-9 w-9" } }} />
             ) : (
               <SignInButton mode="modal">
                 <button
