@@ -30,6 +30,8 @@ jobs:
         run: npm run lint
       - name: Type check
         run: npm run typecheck
+      - name: Unit tests
+        run: npm run test:unit
       - name: Build application
         shell: bash
         run: |
