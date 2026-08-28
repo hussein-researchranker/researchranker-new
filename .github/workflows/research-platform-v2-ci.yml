@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - agent/research-platform-v2
+      - "agent/**"
   pull_request:
     branches:
       - main
@@ -24,6 +24,12 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Lint
+        run: npm run lint
+      - name: Type check
+        run: npm run typecheck
       - name: Build application
         shell: bash
         run: |
@@ -38,7 +44,7 @@ jobs:
         with:
           name: researchranker-build-log-${{ github.run_number }}
           path: build.log
-          if-no-files-found: error
+          if-no-files-found: ignore
       - name: Enforce build result
         shell: bash
         run: exit "${build_exit:-1}"

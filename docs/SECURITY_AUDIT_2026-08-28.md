@@ -1,0 +1,43 @@
+# ResearchRanker security and release audit — 2026-08-28
+
+## Baseline
+
+The latest `main` revision passed the existing GitHub Actions production build before this audit. Production deployment remains operational on the last successful Vercel release, while newer deployment attempts are affected by the Vercel build-rate limit.
+
+## Fixed in this hardening batch
+
+1. **AI summary authorization** — `/api/ai/summarize` now requires a Clerk user session before a paid Gemini request can be made.
+2. **AI abuse controls** — per-user Redis-backed fixed-window rate limits were added to both AI endpoints.
+3. **AI request timeouts** — Gemini calls now have explicit server-side timeouts to avoid long-running function requests.
+4. **Provider error containment** — raw upstream provider error messages are no longer returned directly to clients.
+5. **Stored article input bounds** — saved library fields and URLs are normalized and length-limited before Redis storage.
+6. **Private library caching** — library-list responses explicitly use private no-store caching and no longer expose raw Redis exception text.
+7. **Browser security headers** — baseline anti-sniffing, frame, referrer, and browser-permission headers were added globally.
+8. **CI gates** — production dependency audit, lint, TypeScript checks, and the Next.js production build are enforced in CI; CI covers `main`, pull requests, and all `agent/**` branches.
+9. **Framework security upgrade** — Next.js and `eslint-config-next` were upgraded from 16.2.7 to the patched 16.3.3 release. The nested `nanoid` dependency was also resolved from 5.1.11 to 5.1.16.
+10. **Dependency audit** — `npm audit --omit=dev` reports zero production dependency vulnerabilities after the lock-file refresh.
+11. **Operational documentation** — the default starter README was replaced with project-specific setup, quality, reliability, and deployment documentation.
+
+## Existing lint debt discovered by the new gate
+
+Next.js/React's current ESLint preset flags synchronous state initialization inside several existing effects (`react-hooks/set-state-in-effect`). Those flows predate this security batch and include URL/localStorage initialization across multiple client pages. Refactoring all of them in a security-only change would create unnecessary UI regression risk, so this single rule is temporarily disabled in `eslint.config.mjs`; the rest of the hooks and Next.js lint rules remain active. The affected flows should be migrated incrementally to lazy initialization, URL state primitives, or external-store patterns.
+
+## Remaining priorities
+
+### High priority
+
+- Add request-cost controls to public scholarly-search endpoints. The global search path can perform multiple upstream calls and should eventually have IP/session throttling and stricter result caps.
+- Correct the client-side quartile filter so a Q1/Q2/Q3/Q4 selection excludes unverified records instead of keeping them in the selected result set.
+- Add unit tests for journal-identification confidence rules and regression tests for ISSN/title matching.
+
+### Medium priority
+
+- Replace set-based full-library reads with a paginated/sorted index. Current library and saved-search list endpoints use `SMEMBERS` followed by `MGET`, which will become inefficient for very large accounts.
+- Refactor the very large `app/advanced-search/page.tsx` and `app/api/global-search/route.ts` files into smaller modules with isolated tests.
+- Preprocess the SCImago CSV into a compact indexed server artifact instead of parsing a large CSV on cold starts.
+- Add end-to-end tests for sign-in, search, save, library update, export, and AI authorization flows.
+- Remove the temporary `react-hooks/set-state-in-effect` override after the affected client initialization flows are refactored.
+
+### Release process
+
+Do not merge this batch to `main` until the final GitHub CI run is green. Once Vercel's build-rate limit clears, merge or fast-forward the reviewed branch and verify `/api/health`, `/search`, `/results`, `/library`, and `/iraqi-journals` on the new production deployment.

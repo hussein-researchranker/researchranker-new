@@ -1,36 +1,70 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ResearchRanker
 
-## Getting Started
+ResearchRanker is a Next.js research discovery and evidence-management platform. It combines scholarly search, journal intelligence, saved libraries, screening workflows, open-access checks, citation utilities, and AI-assisted synthesis.
 
-First, run the development server:
+## Core stack
+
+- Next.js 16 and React 19
+- Clerk authentication
+- Upstash Redis for user libraries, saved searches, and alerts
+- Crossref, OpenAlex, PubMed/NCBI, Unpaywall, and a server-side SCImago snapshot
+- Gemini for authenticated AI summaries and library-grounded assistance
+
+## Local setup
+
+Install dependencies and start the development server:
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Before running authenticated or data-backed features, configure the required environment variables in `.env.local`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```text
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+GEMINI_API_KEY=
+UNPAYWALL_EMAIL=
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Do not commit secrets or production credentials.
 
-## Learn More
+## Quality checks
 
-To learn more about Next.js, take a look at the following resources:
+Run the same core checks used by CI:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run lint
+npm run typecheck
+npm run build
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Or run all three with:
 
-## Deploy on Vercel
+```bash
+npm run check
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Important routes
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `/search` and `/advanced-search` — research discovery
+- `/results` — ranked and verified result review
+- `/article` — DOI-level metadata and trust signals
+- `/library` — saved evidence workspace and screening
+- `/library/export` — standards-oriented export
+- `/iraqi-journals` — Iraqi journal explorer
+- `/dashboard` — researcher workspace overview
+- `/api/health` — deployment and Redis health signal
+
+## Academic reliability
+
+ResearchRanker distinguishes verified journal evidence from unverified metadata. Quartiles and indexing claims should only be treated as verified when the platform has strong journal-identification evidence. Researchers should still check publisher and indexing records before making publication, promotion, or accreditation decisions.
+
+AI outputs are assistance only. They must not be treated as primary evidence and should be checked against the underlying article text.
+
+## Deployment
+
+The production project is hosted on Vercel and linked to the repository's `main` branch. GitHub Actions performs linting, TypeScript checks, and a production build before changes should be promoted.
